@@ -1,0 +1,31 @@
+#!/command/with-contenv bashio
+# ==============================================================================
+# OpenCode Plus - Image Service (ingress proxy + image upload + voice UI)
+# Wraps the terminal/OpenChamber behind a header-bar UI on port 8099.
+# Proxies to ttyd on 8089 (terminal mode) or OC proxy on 8090 (OpenChamber).
+# ==============================================================================
+
+export HOME="/data"
+export XDG_CONFIG_HOME="/data/.config"
+export NPM_CONFIG_PREFIX="/data/.npm-global"
+
+if [ -f /data/.env_vars ]; then
+    source /data/.env_vars
+fi
+
+mkdir -p /data/images
+
+INTERFACE_MODE=$(bashio::config 'interface_mode' 2>/dev/null || echo "terminal")
+if [ "${INTERFACE_MODE}" = "openchamber" ]; then
+    export UPSTREAM_PORT=8090
+    bashio::log.info "Image service: OpenChamber mode, proxying to 127.0.0.1:8090"
+else
+    export UPSTREAM_PORT=8089
+    bashio::log.info "Image service: terminal mode, proxying to 127.0.0.1:8089"
+fi
+
+export IMAGE_SERVICE_PORT=8099
+export UPLOAD_DIR=/data/images
+
+bashio::log.info "Starting image-service on port 8099 (HA ingress)..."
+exec node /opt/image-service/server.js
