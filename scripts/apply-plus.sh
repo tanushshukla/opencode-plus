@@ -26,6 +26,27 @@ sedi() { sed -i.plusbak "$@" && rm -f "${@: -1}.plusbak"; }
 
 changed=0
 
+# --- config.yaml: version = <upstream base>.<overlay n> -----------------------
+# Parse version FIRST so we fail early if config.yaml is unparseable,
+# before any partial writes have been committed.
+current="$(sed -n 's/^version: *"\{0,1\}\([0-9][0-9.]*\)"\{0,1\}.*/\1/p' "$CONFIG" | head -1)"
+if [ -z "$current" ]; then
+  echo "ERROR: could not parse version from $CONFIG" >&2
+  exit 1
+fi
+# Upstream uses 3-segment versions (e.g. 2.3.7). If the version already has
+# 4+ segments it has already been through this script.
+dots="$(printf '%s' "$current" | tr -cd '.' | wc -c | tr -d ' ')"
+if [ "$dots" -le 2 ]; then
+  base="$current"
+  n=1
+else
+  base="${current%.*}"
+  n="${current##*.}"
+  if [ "$BUMP" = "--bump" ]; then n=$((n + 1)); fi
+fi
+newver="$base.$n"
+
 # --- config.yaml: naming ------------------------------------------------------
 if grep -q '^name: "OpenCode"$' "$CONFIG"; then
   sedi 's/^name: "OpenCode"$/name: "OpenCode+"/' "$CONFIG"
@@ -40,22 +61,7 @@ if grep -q '^url: "https://github.com/magnusoverli/opencode"$' "$CONFIG"; then
   changed=1
 fi
 
-# --- config.yaml: version = <upstream base>.<overlay n> -----------------------
-current="$(sed -n 's/^version: *"\{0,1\}\([0-9][0-9.]*\)"\{0,1\}.*/\1/p' "$CONFIG" | head -1)"
-if [ -z "$current" ]; then
-  echo "ERROR: could not parse version from $CONFIG" >&2
-  exit 1
-fi
-dots="$(printf '%s' "$current" | tr -cd '.' | wc -c | tr -d ' ')"
-if [ "$dots" -le 2 ]; then
-  base="$current"
-  n=1
-else
-  base="${current%.*}"
-  n="${current##*.}"
-  if [ "$BUMP" = "--bump" ]; then n=$((n + 1)); fi
-fi
-newver="$base.$n"
+# --- config.yaml: version write -----------------------------------------------
 if [ "$newver" != "$current" ]; then
   sedi "s/^version: .*/version: \"$newver\"/" "$CONFIG"
   changed=1
@@ -64,6 +70,11 @@ fi
 # --- ha-opencode/run: move ttyd from 8099 to 8089 -----------------------------
 if grep -q ' -p 8099 \\$' "$HA_OPENCODE_RUN"; then
   sedi 's/ -p 8099 \\/ -p 8089 \\/' "$HA_OPENCODE_RUN"
+  changed=1
+fi
+# Fix the log message to match the new port.
+if grep -q 'Starting ttyd on port 8099' "$HA_OPENCODE_RUN"; then
+  sedi 's/Starting ttyd on port 8099/Starting ttyd on port 8089/' "$HA_OPENCODE_RUN"
   changed=1
 fi
 

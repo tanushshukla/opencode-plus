@@ -117,7 +117,7 @@ get_theme() {
 
 THEME_JSON=$(get_theme "${TERMINAL_THEME}")
 
-bashio::log.info "Starting ttyd on port 8099 (Home Assistant ingress)..."
+bashio::log.info "Starting ttyd on port 8089 (Home Assistant ingress)..."
 
 # ==============================================================================
 # Start ttyd with configured options
