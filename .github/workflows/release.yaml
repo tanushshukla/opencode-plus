@@ -88,7 +88,7 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           sed -i "s/^version: .*/version: \"${VERSION}\"/" ha_opencode/config.yaml
-          sed -i 's|^image: .*|image: "ghcr.io/magnusoverli/ha_opencode"|' ha_opencode/config.yaml
+          sed -i 's|^image: .*|image: "ghcr.io/tanushshukla/ha_opencode"|' ha_opencode/config.yaml
 
           # Assert the sed actually matched. Previously a silently-unmatched
           # pattern was indistinguishable from "already correct".
@@ -97,7 +97,7 @@ jobs:
             grep -n "^version:" ha_opencode/config.yaml
             exit 1
           }
-          grep -qx 'image: "ghcr.io/magnusoverli/ha_opencode"' ha_opencode/config.yaml || {
+          grep -qx 'image: "ghcr.io/tanushshukla/ha_opencode"' ha_opencode/config.yaml || {
             echo "::error::image: line was not rewritten."
             grep -n "^image:" ha_opencode/config.yaml
             exit 1

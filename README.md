@@ -3,9 +3,9 @@
 <!-- opencode-plus overlay marker -->
 > **OpenCode+** — this is a fork of [magnusoverli/opencode](https://github.com/magnusoverli/opencode) that adds **image paste** (paste, drag-drop, or upload an image in the web terminal and get a file path for OpenCode) and **voice input**, ported from [claude-terminal-plus](https://github.com/tanushshukla/claude-terminal-plus).
 
-# 🚀 OpenCode
+# 🚀 OpenCode+
 
-### *AI-Powered Configuration Assistant for Home Assistant*
+### *AI-Powered Configuration Assistant for Home Assistant — with Image Paste & Voice Input*
 
 [![Version][version-shield]][github]
 [![Project Stage][project-stage-shield]][github]
@@ -25,7 +25,7 @@
 
 ## ✨ About
 
-**OpenCode** brings the revolutionary [OpenCode](https://opencode.ai) AI coding agent directly into your Home Assistant instance. Experience intelligent configuration editing through natural language, advanced YAML assistance, and deep integration via the Model Context Protocol (MCP).
+**OpenCode+** brings the revolutionary [OpenCode](https://opencode.ai) AI coding agent directly into your Home Assistant instance, with added **image paste** (copy an image and paste it into the terminal — OpenCode gets a file path) and **voice dictation** (click the Voice button to speak your prompts). Experience intelligent configuration editing through natural language, advanced YAML assistance, and deep integration via the Model Context Protocol (MCP).
 
 > **Upstream attribution:** This is an independent Home Assistant add-on that redistributes and integrates [OpenCode](https://github.com/anomalyco/opencode), © 2025 opencode, under the MIT License. It is not made by, affiliated with, or endorsed by the OpenCode team or Anomaly. See the [third-party notices](THIRD-PARTY-LICENSES.md).
 
@@ -38,6 +38,12 @@
 
 #### 🤖 **AI-Powered Editing**
 Use natural language to modify your Home Assistant configuration. No more searching documentation - just ask!
+
+#### 📷 **Image Paste Support**
+Paste, drag-drop, or upload images directly into the terminal — they're saved to a path (`/data/images/pasted-*.png`) that OpenCode can read. Just paste an image from your clipboard!
+
+#### 🎤 **Voice Dictation**
+Click the Voice button to dictate prompts using your microphone (Web Speech API). Edit the transcript, copy it, and paste it into OpenCode.
 
 #### 🎨 **Two Interface Modes**
 Choose your experience from the sidebar: a beautiful web **terminal** with 10 themes, or the graphical **OpenChamber** web UI — both served through Home Assistant Ingress.
@@ -131,7 +137,7 @@ Simply run `/connect` and select **OpenCode Zen** to get started for free.
    
    Go to **Settings** → **Add-ons** → **Add-on Store** → **⋮** → **Repositories**
    
-   Add: `https://github.com/magnusoverli/opencode`
+   Add: `https://github.com/tanushshukla/opencode-plus`
    </details>
 
 2. **Install the add-on:**
@@ -304,7 +310,7 @@ should ship to stable users right away. Full details in
 
 ### All Contributors
 
-See the [contributors page](https://github.com/magnusoverli/opencode/graphs/contributors) for the full list of amazing people who have helped make this project better!
+See the [contributors page](https://github.com/tanushshukla/opencode-plus/graphs/contributors) for the full list of amazing people who have helped make this project better!
 
 </td>
 </tr>
@@ -333,18 +339,18 @@ This distribution also includes third-party software, including OpenCode. Its co
 <!-- Links -->
 [docs]: ./ha_opencode/DOCS.md
 [changelog]: ./ha_opencode/CHANGELOG.md
-[issues]: https://github.com/magnusoverli/opencode/issues
+[issues]: https://github.com/tanushshukla/opencode-plus/issues
 [license]: UNLICENSE
-[github]: https://github.com/magnusoverli/opencode
-[repo-add]: https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fmagnusoverli%2Fopencode
+[github]: https://github.com/tanushshukla/opencode-plus
+[repo-add]: https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Ftanushshukla%2Fopencode-plus
 [repo-btn]: https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg
 
 <!-- Badges -->
-[version-shield]: https://img.shields.io/github/v/release/magnusoverli/opencode.svg?style=for-the-badge
+[version-shield]: https://img.shields.io/github/v/release/tanushshukla/opencode-plus.svg?style=for-the-badge
 [project-stage-shield]: https://img.shields.io/badge/project%20stage-experimental-orange.svg?style=for-the-badge
-[license-shield]: https://img.shields.io/github/license/magnusoverli/opencode.svg?style=for-the-badge
+[license-shield]: https://img.shields.io/github/license/tanushshukla/opencode-plus.svg?style=for-the-badge
 [maintenance-shield]: https://img.shields.io/maintenance/yes/2026.svg?style=for-the-badge
-[stable-build-shield]: https://img.shields.io/github/v/release/magnusoverli/opencode?style=for-the-badge&label=stable%20release
-[beta-build-shield]: https://img.shields.io/github/v/release/magnusoverli/opencode?include_prereleases&style=for-the-badge&label=beta%20release
-[stable-build-workflow]: https://github.com/magnusoverli/opencode/releases
-[beta-build-workflow]: https://github.com/magnusoverli/opencode/releases
+[stable-build-shield]: https://img.shields.io/github/v/release/tanushshukla/opencode-plus?style=for-the-badge&label=stable%20release
+[beta-build-shield]: https://img.shields.io/github/v/release/tanushshukla/opencode-plus?include_prereleases&style=for-the-badge&label=beta%20release
+[stable-build-workflow]: https://github.com/tanushshukla/opencode-plus/releases
+[beta-build-workflow]: https://github.com/tanushshukla/opencode-plus/releases

@@ -1,0 +1,82 @@
+---
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Sync from magnusoverli/opencode
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate token
+        id: gen_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.OP_SU }}
+          private-key: ${{ secrets.OP_SU }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.gen_token.outputs.token }}
+
+      - name: Configure git
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/magnusoverli/opencode.git
+          git fetch upstream main
+
+      - name: Merge upstream
+        id: merge
+        run: |
+          if git merge upstream/main -m "chore: merge upstream/main"; then
+            echo "conflict=false" >> $GITHUB_OUTPUT
+          else
+            echo "conflict=true" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: Resolve merge conflicts (take upstream + re-apply overlay)
+        if: steps.merge.outputs.conflict == 'true'
+        run: |
+          # Take upstream's version for files modified by apply-plus.sh to
+          # get a clean upstream baseline, then re-run the overlay.
+          git checkout --theirs \
+            ha_opencode/config.yaml \
+            ha_opencode/Dockerfile \
+            ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-opencode/run \
+            ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber/run \
+            README.md \
+            repository.yaml
+          git add \
+            ha_opencode/config.yaml \
+            ha_opencode/Dockerfile \
+            ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-opencode/run \
+            ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber/run \
+            README.md \
+            repository.yaml
+          git commit -m "chore: accept upstream versions for overlay-managed files"
+
+      - name: Re-apply plus overlay
+        run: bash scripts/apply-plus.sh
+
+      - name: Commit and push
+        run: |
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "chore: re-apply opencode-plus overlay after upstream sync"
+            git push origin main
+          else
+            echo "No changes after sync"
+          fi

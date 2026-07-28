@@ -99,14 +99,14 @@ jobs:
           # Set the release version (dev's config.yaml may show the previous
           # beta version since the version bump happens here, not on dev)
           sed -i "s/^version: .*/version: \"${VERSION}\"/" ha_opencode_beta/config.yaml
-          sed -i 's|^image: .*|image: "ghcr.io/magnusoverli/ha_opencode_beta"|' ha_opencode_beta/config.yaml
+          sed -i 's|^image: .*|image: "ghcr.io/tanushshukla/ha_opencode_beta"|' ha_opencode_beta/config.yaml
 
           grep -qx "version: \"${VERSION}\"" ha_opencode_beta/config.yaml || {
             echo "::error::version: line was not rewritten to \"${VERSION}\"."
             grep -n "^version:" ha_opencode_beta/config.yaml
             exit 1
           }
-          grep -qx 'image: "ghcr.io/magnusoverli/ha_opencode_beta"' ha_opencode_beta/config.yaml || {
+          grep -qx 'image: "ghcr.io/tanushshukla/ha_opencode_beta"' ha_opencode_beta/config.yaml || {
             echo "::error::image: line was not rewritten."
             grep -n "^image:" ha_opencode_beta/config.yaml
             exit 1

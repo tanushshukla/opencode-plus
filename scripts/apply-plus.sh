@@ -13,6 +13,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="$ROOT/ha_opencode/config.yaml"
+BETA_CONFIG="$ROOT/ha_opencode_beta/config.yaml"
 DOCKERFILE="$ROOT/ha_opencode/Dockerfile"
 CHANGELOG="$ROOT/ha_opencode/CHANGELOG.md"
 README="$ROOT/README.md"
@@ -60,6 +61,10 @@ if grep -q '^url: "https://github.com/magnusoverli/opencode"$' "$CONFIG"; then
   sedi 's|^url: "https://github.com/magnusoverli/opencode"$|url: "https://github.com/tanushshukla/opencode-plus"|' "$CONFIG"
   changed=1
 fi
+if grep -q '^image: "ghcr.io/magnusoverli/ha_opencode"$' "$CONFIG"; then
+  sedi 's|^image: "ghcr.io/magnusoverli/ha_opencode"$|image: "ghcr.io/tanushshukla/ha_opencode"|' "$CONFIG"
+  changed=1
+fi
 
 # --- config.yaml: version write -----------------------------------------------
 if [ "$newver" != "$current" ]; then
@@ -81,6 +86,24 @@ fi
 # --- ha-openchamber/run: move OC ingress proxy from 8099 to 8090 --------------
 if grep -q '^OPENCHAMBER_INGRESS_PORT=8099$' "$HA_OPENCHAMBER_RUN"; then
   sedi 's/^OPENCHAMBER_INGRESS_PORT=8099$/OPENCHAMBER_INGRESS_PORT=8090/' "$HA_OPENCHAMBER_RUN"
+  changed=1
+fi
+
+# --- beta config.yaml: naming, url, image -------------------------------------
+if grep -q '^name: "OpenCode Beta"$' "$BETA_CONFIG"; then
+  sedi 's/^name: "OpenCode Beta"$/name: "OpenCode+ Beta"/' "$BETA_CONFIG"
+  changed=1
+fi
+if grep -q '^panel_title: OpenCode Beta$' "$BETA_CONFIG"; then
+  sedi 's/^panel_title: OpenCode Beta$/panel_title: OpenCode+ Beta/' "$BETA_CONFIG"
+  changed=1
+fi
+if grep -q '^url: "https://github.com/magnusoverli/opencode"$' "$BETA_CONFIG"; then
+  sedi 's|^url: "https://github.com/magnusoverli/opencode"$|url: "https://github.com/tanushshukla/opencode-plus"|' "$BETA_CONFIG"
+  changed=1
+fi
+if grep -q '^image: "ghcr.io/magnusoverli/ha_opencode_beta"$' "$BETA_CONFIG"; then
+  sedi 's|^image: "ghcr.io/magnusoverli/ha_opencode_beta"$|image: "ghcr.io/tanushshukla/ha_opencode_beta"|' "$BETA_CONFIG"
   changed=1
 fi
 
@@ -112,6 +135,36 @@ BANNER
     tail -n +2 "$README"
   } > "$tmp"
   mv "$tmp" "$README"
+  changed=1
+fi
+
+# --- README: fix upstream links to point to this fork -------------------------
+# These sed calls are idempotent — they only change links that still point to
+# the upstream repo. They run every time to catch URLs re-introduced by merges.
+# Use targeted patterns to avoid replacing the banner text (which correctly
+# references the upstream fork source).
+if grep -Eq '\[(issues|github|repo-add|stable-build-shield|beta-build-shield|stable-build-workflow|beta-build-workflow|version-shield|license-shield)\]: https://github.com/magnusoverli/opencode' "$README"; then
+  sedi 's|\(\[\(issues\|github\|repo-add\|stable-build-shield\|beta-build-shield\|stable-build-workflow\|beta-build-workflow\|version-shield\|license-shield\)\]: https://github.com/\)magnusoverli/opencode|\1tanushshukla/opencode-plus|g' "$README"
+  changed=1
+fi
+if grep -q 'img.shields.io/github/v/release/magnusoverli/opencode' "$README"; then
+  sedi 's|img.shields.io/github/v/release/magnusoverli/opencode|img.shields.io/github/v/release/tanushshukla/opencode-plus|g' "$README"
+  changed=1
+fi
+if grep -q 'img.shields.io/github/license/magnusoverli/opencode' "$README"; then
+  sedi 's|img.shields.io/github/license/magnusoverli/opencode|img.shields.io/github/license/tanushshukla/opencode-plus|g' "$README"
+  changed=1
+fi
+if grep -q 'Add: \`https://github.com/magnusoverli/opencode\`' "$README"; then
+  sedi 's|Add: \`https://github.com/magnusoverli/opencode\`|Add: \`https://github.com/tanushshukla/opencode-plus\`|' "$README"
+  changed=1
+fi
+if grep -q 'repository_url=https%3A%2F%2Fgithub.com%2Fmagnusoverli%2Fopencode' "$README"; then
+  sedi 's|repository_url=https%3A%2F%2Fgithub.com%2Fmagnusoverli%2Fopencode|repository_url=https%3A%2F%2Fgithub.com%2Ftanushshukla%2Fopencode-plus|g' "$README"
+  changed=1
+fi
+if grep -q '# 🚀 OpenCode$' "$README"; then
+  sedi 's/# 🚀 OpenCode$/# 🚀 OpenCode+/' "$README"
   changed=1
 fi
 
