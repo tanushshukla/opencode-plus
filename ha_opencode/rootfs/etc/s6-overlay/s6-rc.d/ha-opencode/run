@@ -141,7 +141,7 @@ bashio::log.info "Starting ttyd on port 8099 (Home Assistant ingress)..."
 exec ttyd \
     -W \
     -d 3 \
-    -p 8099 \
+    -p 8089 \
     -I /opt/ttyd/index.html \
     -t fontSize="${FONT_SIZE}" \
     -t fontWeight=normal \

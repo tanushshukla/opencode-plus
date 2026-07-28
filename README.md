@@ -1,5 +1,8 @@
 <div align="center">
 
+<!-- opencode-plus overlay marker -->
+> **OpenCode+** — this is a fork of [magnusoverli/opencode](https://github.com/magnusoverli/opencode) that adds **image paste** (paste, drag-drop, or upload an image in the web terminal and get a file path for OpenCode) and **voice input**, ported from [claude-terminal-plus](https://github.com/tanushshukla/claude-terminal-plus).
+
 # 🚀 OpenCode
 
 ### *AI-Powered Configuration Assistant for Home Assistant*

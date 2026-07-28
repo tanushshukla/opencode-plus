@@ -159,3 +159,11 @@ LABEL \
     io.hass.description="AI coding agent for editing Home Assistant configuration" \
     io.hass.type="addon" \
     io.hass.version="${BUILD_VERSION}"
+
+# --- opencode-plus overlay ---
+# Image upload wrapper: serves the ingress UI on 8099, proxies the terminal
+# to 8089 (terminal mode) or the OpenChamber proxy to 8090 (OpenChamber mode),
+# saves pasted images to /data/images. Kept as an append-only block so upstream
+# merges never conflict here.
+RUN chmod +x /opt/image-service/server.js \
+    && chmod +x /etc/s6-overlay/s6-rc.d/image-service/run
