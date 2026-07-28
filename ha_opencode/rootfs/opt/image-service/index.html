@@ -377,7 +377,7 @@
             };
 
             recognition.onend = () => {
-                if (is Recording) {
+                if (isRecording) {
                     try { recognition.start(); } catch (e) { stopRecording(); }
                 }
             };
