@@ -135,13 +135,26 @@ jobs:
         id: changelog
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          # Extract content between "## VERSION" and the next "## " header
-          # Uses a flag to skip the matching header line and stop before the next one
-          CHANGELOG=$(awk "
-            /^## ${VERSION}$/ { found=1; next }
-            found && /^## / { exit }
-            found { print }
-          " ha_opencode/CHANGELOG.md)
+          extract_changelog() {
+            awk -v version="$1" '
+              $0 == "## " version { found=1; next }
+              found && /^## / { exit }
+              found { print }
+            ' ha_opencode/CHANGELOG.md
+          }
+
+          CHANGELOG=$(extract_changelog "${VERSION}")
+
+          # OpenCode+ appends an overlay revision to the three-part upstream
+          # version (2.3.8 becomes 2.3.8.1), while retaining upstream's
+          # changelog headings. Fall back to that upstream version.
+          if [ -z "${CHANGELOG}" ] && [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            UPSTREAM_VERSION="${VERSION%.*}"
+            CHANGELOG=$(extract_changelog "${UPSTREAM_VERSION}")
+            if [ -n "${CHANGELOG}" ]; then
+              echo "Using changelog section ${UPSTREAM_VERSION} for OpenCode+ ${VERSION}."
+            fi
+          fi
 
           if [ -z "${CHANGELOG}" ]; then
             echo "::warning::No '## ${VERSION}' section found in ha_opencode/CHANGELOG.md — the release body will be empty."
