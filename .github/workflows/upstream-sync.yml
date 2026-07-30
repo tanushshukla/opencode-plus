@@ -15,17 +15,8 @@ jobs:
     name: Sync from magnusoverli/opencode
     runs-on: ubuntu-latest
     steps:
-      - name: Generate token
-        id: gen_token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.OP_SU }}
-          private-key: ${{ secrets.OP_SU }}
-
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          token: ${{ steps.gen_token.outputs.token }}
 
       - name: Configure git
         run: |
