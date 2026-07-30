@@ -1,10 +1,10 @@
 ---
-name: "OpenCode"
+name: "OpenCode+"
 description: "AI coding agent for editing Home Assistant configuration with deep MCP integration and LSP support"
-version: "2.3.8"
+version: "2.3.8.1"
 slug: "ha_opencode"
-image: "ghcr.io/magnusoverli/ha_opencode"
-url: "https://github.com/magnusoverli/opencode"
+image: "ghcr.io/tanushshukla/ha_opencode"
+url: "https://github.com/tanushshukla/opencode-plus"
 arch:
   - aarch64
   - amd64
@@ -16,7 +16,7 @@ ingress: true
 ingress_port: 8099
 ingress_stream: true
 panel_icon: mdi:robot
-panel_title: OpenCode
+panel_title: OpenCode+
 ports:
   4096/tcp: null
   4097/tcp: null
