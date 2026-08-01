@@ -146,8 +146,9 @@ Done. Still to do by hand:
   1. Write the "## <version>" section in ha_opencode/CHANGELOG.md
   2. Bump the beta line in ha_opencode_beta/CHANGELOG.md if you are starting a
      new one
-  3. Commit, push to main, then tag:  git tag v<version> && git push origin v<version>
+  3. Update ha_opencode/config.yaml to the promoted stable version, stage the
+     code, config, and changelog changes, commit them, and push to main.
+  4. Let .github/workflows/auto-tag-stable.yml create v<version> and start the
+     existing stable build/release workflows.
 
-The version in ha_opencode/config.yaml is written by CI when the tag builds —
-do not set it by hand.
 EOF

@@ -152,8 +152,10 @@ storefront. Make beta changes on `dev` and create `beta-v*` tags there. The
 beta release workflow checks that the tag is reachable from `origin/dev`, then
 checks out `main` and syncs the tagged `ha_opencode_beta/` directory onto it.
 
-Stable releases continue from `main`. A beta tag on `main` or a stable tag on
-`dev` fails its respective source-branch guard.
+Stable releases continue from `main`. A beta tag must be reachable from
+`origin/dev`; if it is also reachable from `origin/main`, `release-beta.yaml`
+emits a notice and continues. A stable tag fails only when it is not reachable
+from `main`.
 
 ## Both add-ons on one machine
 
