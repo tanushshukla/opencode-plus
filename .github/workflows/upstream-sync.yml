@@ -4,72 +4,158 @@ name: Upstream Sync
 on:
   schedule:
     - cron: '23 4 * * *'
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: write
-  pull-requests: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
 
 jobs:
   sync:
     name: Sync from magnusoverli/opencode
     runs-on: ubuntu-latest
+    env:
+      UPSTREAM: https://github.com/magnusoverli/opencode.git
+      # Files whose conflicts are resolved by taking upstream's version and
+      # re-running scripts/apply-plus.sh.
+      MANAGED_FILES: |
+        ha_opencode/config.yaml
+        ha_opencode_beta/config.yaml
+        ha_opencode/Dockerfile
+        ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-opencode/run
+        ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber/run
+        README.md
+        repository.yaml
     steps:
+      - name: Detect sync token
+        id: token
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          if [ -n "$SYNC_TOKEN" ]; then
+            echo "pat=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pat=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # A PAT with repo + workflow permission is optional. The default
+          # token is sufficient when upstream did not change workflow files.
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
 
       - name: Configure git
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'upstream-sync[bot]'
+          git config user.email 'upstream-sync@users.noreply.github.com'
 
       - name: Fetch upstream
         run: |
-          git remote add upstream https://github.com/magnusoverli/opencode.git
+          git remote add upstream "$UPSTREAM"
           git fetch upstream main
 
-      - name: Merge upstream
-        id: merge
+      - name: Check for new upstream commits
+        id: check
         run: |
-          if git merge upstream/main -m "chore: merge upstream/main"; then
-            echo "conflict=false" >> $GITHUB_OUTPUT
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Up to date with upstream."
+            echo "new=false" >> "$GITHUB_OUTPUT"
           else
-            echo "conflict=true" >> $GITHUB_OUTPUT
+            echo "new=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Merge upstream without committing
+        id: merge
+        if: steps.check.outputs.new == 'true'
+        run: |
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+          if git merge upstream/main --no-commit --no-ff; then
+            echo "result=clean" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          conflicted="$(git diff --name-only --diff-filter=U)"
+          unmanaged=""
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+
+            if grep -qxF "$file" <<< "$MANAGED_FILES"; then
+              git checkout --theirs -- "$file"
+              git add -- "$file"
+            elif [[ "$file" == .github/workflows/* ]]; then
+              if [ "${{ steps.token.outputs.pat }}" = "true" ]; then
+                git checkout --theirs -- "$file"
+                git add -- "$file"
+              elif git cat-file -e "HEAD:$file" 2>/dev/null; then
+                git checkout HEAD -- "$file"
+              else
+                git rm -f --quiet -- "$file"
+              fi
+            else
+              unmanaged="$unmanaged $file"
+            fi
+          done <<< "$conflicted"
+
+          if [ -n "$unmanaged" ]; then
+            echo "Unmanaged merge conflicts:$unmanaged"
+            git merge --abort
+            echo "result=manual" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "result=clean" >> "$GITHUB_OUTPUT"
         continue-on-error: true
 
-      - name: Resolve merge conflicts (take upstream + re-apply overlay)
-        if: steps.merge.outputs.conflict == 'true'
+      - name: Hold back upstream workflow changes without PAT
+        if: steps.check.outputs.new == 'true' && steps.merge.outputs.result == 'clean' && steps.token.outputs.pat == 'false'
+        env:
+          BASE: ${{ steps.merge.outputs.base }}
         run: |
-          # Take upstream's version for files modified by apply-plus.sh to
-          # get a clean upstream baseline, then re-run the overlay.
-          git checkout --theirs \
-            ha_opencode/config.yaml \
-            ha_opencode/Dockerfile \
-            ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-opencode/run \
-            ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber/run \
-            README.md \
-            repository.yaml
-          git add \
-            ha_opencode/config.yaml \
-            ha_opencode/Dockerfile \
-            ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-opencode/run \
-            ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber/run \
-            README.md \
-            repository.yaml
-          git commit -m "chore: accept upstream versions for overlay-managed files"
-
-      - name: Re-apply plus overlay
-        run: bash scripts/apply-plus.sh
-
-      - name: Commit and push
-        run: |
-          if ! git diff --quiet; then
-            git add -A
-            git commit -m "chore: re-apply opencode-plus overlay after upstream sync"
-            git push origin main
-          else
-            echo "No changes after sync"
+          changed="$(git diff --name-only --cached "$BASE" -- .github/workflows)"
+          if [ -z "$changed" ]; then
+            echo "Merge brings no workflow changes."
+            exit 0
           fi
+
+          echo "Holding back upstream workflow changes because SYNC_TOKEN is not set:"
+          echo "$changed"
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            if git cat-file -e "$BASE:$file" 2>/dev/null; then
+              git checkout "$BASE" -- "$file"
+            else
+              git rm -f --quiet -- "$file"
+            fi
+          done <<< "$changed"
+
+      - name: Re-apply plus overlay and push
+        if: steps.check.outputs.new == 'true' && steps.merge.outputs.result == 'clean'
+        run: |
+          bash scripts/apply-plus.sh
+          git add -A
+
+          version="$(sed -n 's/^version: *"\{0,1\}\([0-9][0-9.]*\)"\{0,1\}.*/\1/p' ha_opencode/config.yaml | head -1)"
+          git commit --allow-empty -m "chore: sync upstream, re-apply plus overlay (v$version)"
+          git push origin HEAD:main
+
+      - name: Open issue for manual conflict resolution
+        if: steps.check.outputs.new == 'true' && steps.merge.outputs.result == 'manual'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Upstream sync needs manual conflict resolution"
+          existing="$(gh issue list --state open --search "in:title \"$title\"" --json number --jq length)"
+          if [ "$existing" != "0" ]; then
+            echo "Issue already open"
+            exit 0
+          fi
+          gh issue create \
+            --title "$title" \
+            --body "Automatic merge of upstream $UPSTREAM hit conflicts outside overlay-managed files. Resolve manually with git fetch upstream main, git merge upstream/main, bash scripts/apply-plus.sh, then commit and push."
