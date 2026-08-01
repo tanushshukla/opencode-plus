@@ -59,14 +59,21 @@ cannot contain it. No feature flag, no branch, no forward-merge.
 
 ### A small fix that should ship as stable now
 
+Update `ha_opencode/config.yaml` to the new stable version, then commit the
+code, config, and changelog change together and push `main`:
+
 ```bash
 git checkout main
 git pull
 # ...fix it in ha_opencode/, add a "## 2.3.8" section to ha_opencode/CHANGELOG.md...
-git commit -am "fix: the thing"
-git push
-git tag v2.3.8 && git push origin v2.3.8
+git add ha_opencode/
+git commit -m "fix: the thing"
+git push origin main
 ```
+
+`.github/workflows/auto-tag-stable.yml` creates `v<version>` automatically with
+`SYNC_TOKEN`. The existing `build.yaml` and `release.yaml` then publish the
+stable GHCR images and the GitHub Release.
 
 If the fix belongs in both channels, make it in both folders in the same
 commit. There is no automation for that, and deliberately so: the two folders
@@ -81,7 +88,6 @@ scripts/promote-beta-to-stable.sh            # copy beta's code onto stable
 # ...write the "## 2.3.8" section in ha_opencode/CHANGELOG.md...
 git commit -am "release: promote 2.3.9b2 to stable 2.3.8"
 git push
-git tag v2.3.8 && git push origin v2.3.8
 ```
 
 The script copies `Dockerfile`, `.dockerignore`, `rootfs/` and `test/`. It does
@@ -105,10 +111,11 @@ refuse to do this, but don't rely on it — always go forward.
 
 ## What CI does
 
-Tagging is the trigger for everything.
+Stable version changes create tags, and tags trigger the build/release pipeline.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
+| `auto-tag-stable.yml` | Push to `main` changing `ha_opencode/config.yaml` | Creates `v<version>` with `SYNC_TOKEN` and starts the stable pipeline |
 | `build.yaml` | `v*` | Builds + pushes the stable image from `ha_opencode/` (amd64 + aarch64, then a multi-arch manifest) |
 | `release.yaml` | `v*` | Writes `version:` into `ha_opencode/config.yaml` on main, creates the GitHub Release |
 | `build-beta.yaml` | `beta-v*` | Same, from `ha_opencode_beta/`, with `ADDON_CHANNEL=beta` |
