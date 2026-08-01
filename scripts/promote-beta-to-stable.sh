@@ -143,12 +143,13 @@ cat <<'EOF'
 
 Done. Still to do by hand:
 
-  1. Write the "## <version>" section in ha_opencode/CHANGELOG.md
-  2. Bump the beta line in ha_opencode_beta/CHANGELOG.md if you are starting a
-     new one
-  3. Update ha_opencode/config.yaml to the promoted stable version, stage the
-     code, config, and changelog changes, commit them, and push to main.
-  4. Let .github/workflows/auto-tag-stable.yml create v<version> and start the
+  1. On main, write the "## <version>" section in ha_opencode/CHANGELOG.md.
+  2. On main, update ha_opencode/config.yaml to the promoted stable version,
+     stage only the stable code, config, and changelog changes, commit them, and
+     push to main.
+  3. Let .github/workflows/auto-tag-stable.yml create v<version> and start the
      existing stable build/release workflows.
+  4. If starting the next beta, make its changelog changes on dev as a separate
+     change and use the existing manual beta-v* tag flow.
 
 EOF

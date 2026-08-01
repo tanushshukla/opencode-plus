@@ -4,8 +4,8 @@ Two channels, two folders.
 
 | | Folder | Tag | Image | Add-on shown in HA |
 |---|---|---|---|---|
-| **Stable** | `ha_opencode/` | `v2.3.8` | `ghcr.io/tanushshukla/ha_opencode` | OpenCode |
-| **Beta** | `ha_opencode_beta/` | `beta-v2.3.9b2` | `ghcr.io/tanushshukla/ha_opencode_beta` | OpenCode Beta |
+| **Stable** | `ha_opencode/` | `v2.4.0.1` | `ghcr.io/tanushshukla/ha_opencode` | OpenCode |
+| **Beta** | `ha_opencode_beta/` | `beta-v2.3.9b3` | `ghcr.io/tanushshukla/ha_opencode_beta` | OpenCode Beta |
 
 Each folder is a complete add-on: its own `Dockerfile`, its own `rootfs/`, its
 own `config.yaml`. Both folders are present on `main` for Home Assistant's
@@ -47,7 +47,7 @@ git pull origin dev
 git add -A ha_opencode_beta/
 git commit -m "feat: the thing"
 git push origin dev
-git tag beta-v2.3.9b3 && git push origin beta-v2.3.9b3
+git tag beta-v2.4.1b0 && git push origin beta-v2.4.1b0
 ```
 
 The beta tag must be reachable from `origin/dev`. `release-beta.yaml` checks out
@@ -62,7 +62,7 @@ code, config, and changelog change together and push `main`:
 ```bash
 git checkout main
 git pull
-# ...fix it in ha_opencode/, update ha_opencode/config.yaml to 2.3.8, and add a "## 2.3.8" section to ha_opencode/CHANGELOG.md...
+# ...fix it in ha_opencode/, update ha_opencode/config.yaml to 2.4.0.2, and add a "## 2.4.0.2" section to ha_opencode/CHANGELOG.md...
 git add ha_opencode/
 git commit -m "fix: the thing"
 git push origin main
@@ -82,15 +82,17 @@ are allowed to differ, and a bot cannot tell "beta hasn't got this yet" from
 ```bash
 scripts/promote-beta-to-stable.sh --check    # what would change
 scripts/promote-beta-to-stable.sh            # copy beta's code onto stable
-# ...write the "## 2.3.9" section in ha_opencode/CHANGELOG.md...
-# ...update ha_opencode/config.yaml to 2.3.9...
+# ...write the "## 2.5.0" section in ha_opencode/CHANGELOG.md...
+# ...update ha_opencode/config.yaml to 2.5.0...
 git add -A ha_opencode/
-git commit -m "release: promote 2.3.9b2 to stable 2.3.9"
+git commit -m "release: promote 2.5.0b2 to stable 2.5.0"
 git push origin main
 ```
 
-The config update on `main` causes `.github/workflows/auto-tag-stable.yml` to
-create `v2.3.9` automatically. Do not create a stable tag manually.
+Keep any next-beta changelog work on `dev` as a separate beta change; it does
+not belong in the stable promotion commit. The config update on `main` causes
+`.github/workflows/auto-tag-stable.yml` to create `v2.5.0` automatically. Do not
+create a stable tag manually.
 
 The script copies `Dockerfile`, `.dockerignore`, `rootfs/` and `test/`. It does
 **not** copy `config.yaml`, `build.yaml`, `translations/`, `DOCS.md`,
@@ -103,8 +105,8 @@ in beta is not silently left behind.
 
 ## Version numbering
 
-Beta versions are `<next-stable>b<N>` — `2.3.9b0`, `2.3.9b1`, … then stable
-ships as `2.3.9`.
+Beta versions are `<next-stable>b<N>` — `2.4.1b0`, `2.4.1b1`, … then stable
+ships as `2.4.1`.
 
 **Never publish a lower version than what is already on `main`.** Supervisor's
 update check is `version != latest_version`, not `>`, so a lower number is
