@@ -20,6 +20,7 @@ assert_contains() {
 
 REMOTE="$WORK/remote.git"
 REPO="$WORK/repo"
+PROBE_REPO="$WORK/force-probe-repo"
 FAKE_BIN="$WORK/fake-bin"
 ISSUE_LOG="$WORK/gh-issues.log"
 FAKE_ERROR_LOG="$WORK/gh-errors.log"
@@ -28,6 +29,9 @@ GIT_PUSH_LOG="$WORK/git-push-guard.log"
 if ! REAL_GIT="$(command -v git)"; then
     fail "could not locate the real git executable before installing the test wrapper"
 fi
+
+git init "$PROBE_REPO" >/dev/null
+test -z "$(git -C "$PROBE_REPO" remote)" || fail "force probe repository must not have remotes before wrapper setup"
 
 setup_git_guard() {
     mkdir -p "$FAKE_BIN"
@@ -71,14 +75,18 @@ EOF
 }
 
 setup_git_guard
+test -z "$(git -C "$PROBE_REPO" remote)" || fail "force probe repository must not have remotes after wrapper setup"
 
 assert_force_push_rejected() {
     local option="$1"
     : > "$GIT_PUSH_LOG"
-    if PATH="$FAKE_BIN:$PATH" \
-        REAL_GIT="$REAL_GIT" \
-        GIT_PUSH_LOG="$GIT_PUSH_LOG" \
-        "$FAKE_BIN/git" push origin "$option" 2> "$WORK/force-option-error.log"; then
+    if (
+        cd "$PROBE_REPO"
+        PATH="$FAKE_BIN:$PATH" \
+            REAL_GIT="$REAL_GIT" \
+            GIT_PUSH_LOG="$GIT_PUSH_LOG" \
+            "$FAKE_BIN/git" push origin "$option" 2> "$WORK/force-option-error.log"
+    ); then
         fail "runtime git guard accepted force option ${option}"
     fi
     test -s "$GIT_PUSH_LOG" || fail "runtime git guard did not record force option ${option}"
@@ -389,35 +397,39 @@ abort 'workflow YAML root must be a mapping' unless doc.is_a?(Hash)
 
 trigger = doc['on'] || doc[true]
 abort 'workflow must define an on trigger' unless trigger.is_a?(Hash)
+abort 'workflow on must contain exactly push' unless trigger.keys == ['push']
 push = trigger['push']
 abort 'workflow must define on.push' unless push.is_a?(Hash)
+abort 'on.push must contain exactly branches and paths' unless push.keys.sort == %w[branches paths]
 abort 'on.push.branches must be exactly [main]' unless push['branches'] == ['main']
 abort 'on.push.paths must be exactly [ha_opencode/config.yaml]' unless push['paths'] == ['ha_opencode/config.yaml']
-abort 'workflow must not define workflow_dispatch' if trigger.key?('workflow_dispatch')
 permissions = doc['permissions']
 abort 'workflow must grant issues: write' unless permissions.is_a?(Hash) && permissions['issues'] == 'write'
 
 jobs = doc['jobs']
-abort 'workflow must define jobs' unless jobs.is_a?(Hash)
-steps = []
-jobs.each do |job_name, job|
-  abort "job #{job_name} must define steps" unless job.is_a?(Hash) && job['steps'].is_a?(Array)
-  abort "job #{job_name} steps must be mappings" unless job['steps'].all? { |step| step.is_a?(Hash) }
-  steps.concat(job['steps'])
-end
+abort 'workflow must define exactly one auto-tag job' unless jobs.is_a?(Hash) && jobs.keys == ['auto-tag']
+job = jobs['auto-tag']
+abort 'auto-tag job must define steps' unless job.is_a?(Hash) && job['steps'].is_a?(Array)
+steps = job['steps']
+abort 'auto-tag steps must be mappings' unless steps.all? { |step| step.is_a?(Hash) }
 abort 'workflow must contain exactly three planned steps' unless steps.length == 3
 
-token_steps = steps.select { |step| step['name'] == 'Detect sync token' }
-abort 'workflow must contain exactly one Detect sync token step' unless token_steps.length == 1
+token_step = steps[0]
+abort 'step 1 must be Detect sync token' unless token_step['name'] == 'Detect sync token'
+token_env = token_step['env']
+abort 'Detect sync token must expose SYNC_TOKEN' unless token_env.is_a?(Hash) && token_env['SYNC_TOKEN'] == '${{ secrets.SYNC_TOKEN }}'
+token_run = token_step['run']
+abort 'Detect sync token must run a non-empty SYNC_TOKEN check' unless token_run.is_a?(String) && !token_run.strip.empty? && token_run.match?(/if\s+\[\s*-z\s+["']?\$SYNC_TOKEN["']?\s*\]\s*;?\s*then/)
+abort 'Detect sync token must exit 1 when missing' unless token_run.match?(/\bexit\s+1\b/)
 
-checkout_steps = steps.select { |step| step['uses'] == 'actions/checkout@v6' }
-abort 'workflow must contain exactly one actions/checkout@v6 step' unless checkout_steps.length == 1
-checkout_with = checkout_steps.first['with']
+checkout_step = steps[1]
+abort 'step 2 must be Checkout repository' unless checkout_step['name'] == 'Checkout repository'
+abort 'step 2 must use actions/checkout@v6' unless checkout_step['uses'] == 'actions/checkout@v6'
+checkout_with = checkout_step['with']
 checkout_token = checkout_with.is_a?(Hash) ? checkout_with['token'] : nil
 abort 'actions/checkout@v6 must use SYNC_TOKEN' unless checkout_token == '${{ secrets.SYNC_TOKEN }}'
 
-helper_runs = steps.count { |step| step['run'] == 'bash scripts/auto-tag-stable.sh' }
-abort 'workflow must contain exactly one helper invocation step' unless helper_runs == 1
+abort 'step 3 must invoke the helper exactly' unless steps[2]['run'] == 'bash scripts/auto-tag-stable.sh'
 RUBY
 then
     fail "workflow YAML contract assertion failed"
