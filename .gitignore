@@ -19,3 +19,6 @@ npm-debug.log*
 
 # Build artifacts
 *.tgz
+
+# Isolated agent worktrees
+.worktrees/
