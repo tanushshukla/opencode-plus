@@ -56,7 +56,7 @@ configuration:
 
   native_ha_mcp_api_id:
     name: "Native MCP API ID"
-    description: "Applies only when the native bridge above is on. The default 'assist' targets /api/mcp/assist; leave it empty to use Home Assistant's configured /api/mcp endpoint instead. Home Assistant requires admin access for keyed API IDs other than 'assist', so a custom ID may not be reachable from an add-on."
+    description: "Applies only when the native bridge above is on. The default 'assist' targets /api/mcp/assist; leave it empty to use every LLM API selected in the MCP Server integration. Any registered API ID is reachable from here: Home Assistant requires admin access for keyed IDs other than 'assist', and the Supervisor calls Home Assistant Core as its own admin system user."
 
   home_briefing_enabled:
     name: "Install briefing"
@@ -80,7 +80,7 @@ configuration:
 
   cpu_mode:
     name: "CPU mode"
-    description: "Which OpenCode binary to run. 'auto' detects your CPU (recommended), 'baseline' forces the build for older CPUs without AVX2, and 'regular' forces the standard build."
+    description: "Which OpenCode binary to run. 'auto' detects your CPU (recommended), 'baseline' selects the build meant for older CPUs without AVX2, and 'regular' forces the standard build. OpenCode requires a CPU with SSE4.2 (Intel Nehalem 2008+, AMD Bulldozer 2011+) in every mode. Note that upstream currently ships the same binary in both packages, so 'baseline' does not presently help a CPU without AVX2."
 
   enable_server:
     name: "OpenCode LAN server"

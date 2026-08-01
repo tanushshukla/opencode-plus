@@ -22,6 +22,11 @@ FROM $BUILD_FROM
 # Build arguments
 ARG BUILD_VERSION
 ARG BUILD_ARCH
+# Which release channel this image is. The two add-on folders ship identical
+# rootfs trees — promoting beta to stable is a straight copy of rootfs/ — so
+# nothing inside rootfs/ may name a channel. This arg is the single point where
+# the two builds differ, and the workflows pass it explicitly.
+ARG ADDON_CHANNEL=stable
 ARG TTYD_VERSION=1.7.7
 ARG OPENCODE_VERSION=latest
 ARG OPENCHAMBER_VERSION=1.16.2
@@ -33,6 +38,10 @@ ARG YQ_VERSION=v4.53.3
 ENV NODE_ENV=production \
     npm_config_update_notifier=false \
     npm_config_fund=false
+
+# Carried into every process in the container. Shell code reads it via
+# /usr/local/lib/opencode/channel.sh; Node code reads process.env.ADDON_CHANNEL.
+ENV ADDON_CHANNEL=${ADDON_CHANNEL}
 
 # Install system dependencies in a single layer
 # - nodejs/npm: Required for OpenCode

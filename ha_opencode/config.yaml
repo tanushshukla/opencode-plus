@@ -1,7 +1,7 @@
 ---
 name: "OpenCode+"
 description: "AI coding agent for editing Home Assistant configuration with deep MCP integration and LSP support"
-version: "2.3.8.1"
+version: "2.4.0.1"
 slug: "ha_opencode"
 image: "ghcr.io/tanushshukla/ha_opencode"
 url: "https://github.com/tanushshukla/opencode-plus"
