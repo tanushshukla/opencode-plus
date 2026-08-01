@@ -7,6 +7,8 @@ trap 'rm -rf "$WORK"' EXIT
 
 WORKFLOW="$ROOT/.github/workflows/auto-tag-stable.yml"
 SCRIPT="$ROOT/scripts/auto-tag-stable.sh"
+CHECKOUT_BLOCK="$WORK/checkout-block.yml"
+FORCE_PUSH='git[[:space:]]+push.*[[:space:]](--force-with-lease|--force|-f)([[:space:]=]|$)'
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -112,12 +114,16 @@ test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.3 | cut -f1)" = "$secon
 commit_version invalid 'test: invalid stable version'
 invalid_sha="$(git -C "$REPO" rev-parse HEAD)"
 invalid_tags_before="$(git -C "$REPO" tag --list)"
+invalid_remote_tags_before="$(git -C "$REPO" ls-remote --tags origin | sort)"
 if run_tag_script "$invalid_sha" "$collision_sha"; then
     fail "invalid version unexpectedly succeeded"
 fi
 invalid_tags_after="$(git -C "$REPO" tag --list)"
+invalid_remote_tags_after="$(git -C "$REPO" ls-remote --tags origin | sort)"
 test "$invalid_tags_after" = "$invalid_tags_before" \
     || fail "invalid version changed the local tag list"
+test "$invalid_remote_tags_after" = "$invalid_remote_tags_before" \
+    || fail "invalid version changed the remote tag list"
 test -z "$(git -C "$REPO" ls-remote origin refs/tags/vinvalid)" \
     || fail "invalid version created a tag"
 
@@ -125,14 +131,22 @@ test -x "$SCRIPT" || fail "tag script is not executable"
 test -f "$WORKFLOW" || fail "automatic tag workflow is missing"
 assert_followed_by '^[[:space:]]*branches:[[:space:]]*$' '^[[:space:]]*-[[:space:]]+main[[:space:]]*$' "$WORKFLOW"
 assert_followed_by '^[[:space:]]*paths:[[:space:]]*$' '^[[:space:]]*-[[:space:]]+ha_opencode/config\.yaml[[:space:]]*$' "$WORKFLOW"
-assert_contains '^[[:space:]]*token:[[:space:]]*\$\{\{ secrets\.SYNC_TOKEN \}\}[[:space:]]*$' "$WORKFLOW"
 assert_contains '^[[:space:]]*run:[[:space:]]*bash[[:space:]]+scripts/auto-tag-stable\.sh[[:space:]]*$' "$WORKFLOW"
 assert_contains 'issues:[[:space:]]*write' "$WORKFLOW"
 assert_not_contains 'workflow_dispatch' "$WORKFLOW"
-assert_not_contains 'git[[:space:]]+push.*--force' "$WORKFLOW"
+assert_not_contains "$FORCE_PUSH" "$WORKFLOW"
 assert_contains 'GITHUB_EVENT_BEFORE' "$SCRIPT"
 assert_contains 'git ls-remote origin' "$SCRIPT"
 assert_contains '^[[:space:]]*git[[:space:]]+push[[:space:]]+origin[[:space:]]+"\$TAG"[[:space:]]*$' "$SCRIPT"
-assert_not_contains 'git[[:space:]]+push.*--force' "$SCRIPT"
+assert_not_contains "$FORCE_PUSH" "$SCRIPT"
+
+awk '
+    /uses:[[:space:]]*actions\/checkout@v6[[:space:]]*$/ { in_checkout=1 }
+    in_checkout && /^[[:space:]]*-[[:space:]]+/ { exit }
+    in_checkout { print }
+' "$WORKFLOW" > "$CHECKOUT_BLOCK"
+test -s "$CHECKOUT_BLOCK" || fail "actions/checkout@v6 block is missing"
+assert_contains '^[[:space:]]*uses:[[:space:]]*actions\/checkout@v6[[:space:]]*$' "$CHECKOUT_BLOCK"
+assert_contains '^[[:space:]]*token:[[:space:]]*\$\{\{ secrets\.SYNC_TOKEN \}\}[[:space:]]*$' "$CHECKOUT_BLOCK"
 
 printf 'automatic stable tagging tests passed\n'
