@@ -4,16 +4,18 @@ Two channels, two folders.
 
 | | Folder | Tag | Image | Add-on shown in HA |
 |---|---|---|---|---|
-| **Stable** | `ha_opencode/` | `v2.3.8` | `ghcr.io/magnusoverli/ha_opencode` | OpenCode |
-| **Beta** | `ha_opencode_beta/` | `beta-v2.3.9b2` | `ghcr.io/magnusoverli/ha_opencode_beta` | OpenCode Beta |
+| **Stable** | `ha_opencode/` | `v2.3.8` | `ghcr.io/tanushshukla/ha_opencode` | OpenCode |
+| **Beta** | `ha_opencode_beta/` | `beta-v2.3.9b2` | `ghcr.io/tanushshukla/ha_opencode_beta` | OpenCode Beta |
 
 Each folder is a complete add-on: its own `Dockerfile`, its own `rootfs/`, its
-own `config.yaml`. Both live on `main`, and both release from `main`.
+own `config.yaml`. Both folders are present on `main` for Home Assistant's
+storefront. Stable tags are sourced from `main`; beta tags are sourced from
+`dev`, and `release-beta.yaml` copies the tagged beta folder onto `main`.
 
-**What separates the channels is the folder, and nothing else.** A stable
-release builds `ha_opencode/`; it cannot contain something that only exists in
-`ha_opencode_beta/`. No branch discipline is required to make that true — it is
-true by construction.
+Stable storefront metadata lives in `ha_opencode/`, and beta storefront metadata
+lives in `ha_opencode_beta/`. Stable releases use the stable folder from `main`.
+A beta release may originate on `dev`, but its tagged beta folder is copied to
+`main` before Home Assistant reads it.
 
 This is the layout ESPHome (`esphome/`, `esphome-beta/`, `esphome-dev/`) and
 Frigate (`frigate/`, `frigate_beta/`, …) use, and it exists because Home
@@ -24,19 +26,12 @@ sees any other branch.
 
 `rootfs/` must never name a channel.
 
-Promotion is a straight copy of `ha_opencode_beta/rootfs/` over
-`ha_opencode/rootfs/`. A hardcoded `"beta"` anywhere in that tree would travel
-with the copy and mislabel stable. Channel identity comes from a single Docker
-build arg:
-
-```
-ADDON_CHANNEL=beta      # passed by .github/workflows/build-beta.yaml
-ADDON_CHANNEL=stable    # passed by .github/workflows/build.yaml
-```
-
-Shell code reads it through `rootfs/usr/local/lib/opencode/channel.sh`; Node
-code reads `process.env.ADDON_CHANNEL`. Add new channel-dependent values to
-`channel.sh` rather than branching on the variable at each call site.
+Promotion copies the beta code paths over their stable counterparts. A hardcoded
+`"beta"` anywhere in `rootfs/` would travel with the copy and mislabel stable.
+The current build workflows do not pass `ADDON_CHANNEL`: both use
+`ha_opencode/` as the Docker context and Dockerfile, while `build-beta.yaml`
+publishes the beta image under `ha_opencode_beta` and reads
+`OPENCHAMBER_VERSION` from `ha_opencode_beta/build.yaml`.
 
 `scripts/promote-beta-to-stable.sh` enforces this: it refuses to finish if
 stable's `rootfs/` names the beta channel after a copy.
@@ -46,16 +41,18 @@ stable's `rootfs/` names the beta channel after a copy.
 ### A change that should only go to beta
 
 ```bash
-git checkout main
-git pull
+git checkout dev
+git pull origin dev
 # ...edit ha_opencode_beta/rootfs/... , add a section to ha_opencode_beta/CHANGELOG.md...
-git commit -am "feat: the thing"
-git push
+git add -A ha_opencode_beta/
+git commit -m "feat: the thing"
+git push origin dev
 git tag beta-v2.3.9b3 && git push origin beta-v2.3.9b3
 ```
 
-The code only exists in `ha_opencode_beta/`, so a stable release physically
-cannot contain it. No feature flag, no branch, no forward-merge.
+The beta tag must be reachable from `origin/dev`. `release-beta.yaml` checks out
+`main` for the Home Assistant storefront, then copies the tagged
+`ha_opencode_beta/` directory onto `main` before creating the prerelease.
 
 ### A small fix that should ship as stable now
 
@@ -65,7 +62,7 @@ code, config, and changelog change together and push `main`:
 ```bash
 git checkout main
 git pull
-# ...fix it in ha_opencode/, add a "## 2.3.8" section to ha_opencode/CHANGELOG.md...
+# ...fix it in ha_opencode/, update ha_opencode/config.yaml to 2.3.8, and add a "## 2.3.8" section to ha_opencode/CHANGELOG.md...
 git add ha_opencode/
 git commit -m "fix: the thing"
 git push origin main
@@ -85,10 +82,15 @@ are allowed to differ, and a bot cannot tell "beta hasn't got this yet" from
 ```bash
 scripts/promote-beta-to-stable.sh --check    # what would change
 scripts/promote-beta-to-stable.sh            # copy beta's code onto stable
-# ...write the "## 2.3.8" section in ha_opencode/CHANGELOG.md...
-git commit -am "release: promote 2.3.9b2 to stable 2.3.8"
-git push
+# ...write the "## 2.3.9" section in ha_opencode/CHANGELOG.md...
+# ...update ha_opencode/config.yaml to 2.3.9...
+git add -A ha_opencode/
+git commit -m "release: promote 2.3.9b2 to stable 2.3.9"
+git push origin main
 ```
+
+The config update on `main` causes `.github/workflows/auto-tag-stable.yml` to
+create `v2.3.9` automatically. Do not create a stable tag manually.
 
 The script copies `Dockerfile`, `.dockerignore`, `rootfs/` and `test/`. It does
 **not** copy `config.yaml`, `build.yaml`, `translations/`, `DOCS.md`,
@@ -111,45 +113,47 @@ refuse to do this, but don't rely on it — always go forward.
 
 ## What CI does
 
-Stable version changes create tags, and tags trigger the build/release pipeline.
+Stable config pushes invoke auto-tagging; only a changed, valid version with no
+tag collision creates a tag, and tags trigger the build/release pipeline.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `auto-tag-stable.yml` | Push to `main` changing `ha_opencode/config.yaml` | Creates `v<version>` with `SYNC_TOKEN` and starts the stable pipeline |
+| `auto-tag-stable.yml` | Push to `main` changing `ha_opencode/config.yaml` | Checks version/tag state; if the stable version value changed, its format is valid, and no collision exists, creates `v<version>` with `SYNC_TOKEN` and starts the stable pipeline; unchanged values and same-commit tags are no-ops |
 | `build.yaml` | `v*` | Builds + pushes the stable image from `ha_opencode/` (amd64 + aarch64, then a multi-arch manifest) |
 | `release.yaml` | `v*` | Writes `version:` into `ha_opencode/config.yaml` on main, creates the GitHub Release |
-| `build-beta.yaml` | `beta-v*` | Same, from `ha_opencode_beta/`, with `ADDON_CHANNEL=beta` |
-| `release-beta.yaml` | `beta-v*` | Writes `version:` into `ha_opencode_beta/config.yaml` on main, creates a prerelease |
+| `build-beta.yaml` | `beta-v*` | Builds the beta image from `ha_opencode/` (amd64 + aarch64, then a multi-arch manifest), publishes it as `ha_opencode_beta`, and passes `OPENCHAMBER_VERSION` from `ha_opencode_beta/build.yaml`; it does not pass `ADDON_CHANNEL` |
+| `release-beta.yaml` | `beta-v*` | Checks the tag is reachable from `origin/dev`, checks out `main` for the storefront, syncs tagged `ha_opencode_beta/` onto `main`, writes `version:`/`image:`, asserts the beta `slug:`, and creates a prerelease |
 | `check-hab-update.yaml` | weekly | Reports the `HAB_VERSION` pin in both Dockerfiles against the latest hab release |
 
 Guards that will stop you:
 
-- **Wrong branch.** A tag not reachable from `main` hard-fails. Both channels
-  release from main.
-- **main moved past the tag.** If the channel's own folder differs between the
-  tag and main's tip, the release stops — otherwise the published storefront
-  would describe an image built from different code. Each release only compares
-  its own folder, so the channels do not block each other.
+- **Stable tag source.** A `v*` tag not reachable from `main` hard-fails.
+- **Beta tag source.** A `beta-v*` tag not reachable from `origin/dev` hard-fails.
+- **Stable main moved past the tag.** If `ha_opencode/` differs between the
+  stable tag and main's tip, the stable release stops. Beta does not compare
+  folder divergence: it replaces `ha_opencode_beta/` on main with the directory
+  from the tagged commit, including deletions.
 - **Downgrade.** Publishing a version lower than the one on main is refused.
-- **Wrong folder.** Each build asserts the `slug:` in the folder it is building
-  before pushing anything, so a beta image can never be published carrying the
-  stable slug.
-- **Silent sed failures.** Every rewrite of `version:`/`image:` is asserted
-  afterwards.
+- **Release metadata assertions.** Stable release asserts its rewritten
+  `version:` and `image:`; beta release asserts its rewritten `version:`,
+  `image:`, and beta `slug:`. The build workflows do not make separate slug
+  assertions.
+- **Stable tag validation and collisions.** Auto-tagging validates the stable
+  version format, does nothing when the value is unchanged, and refuses to move
+  an existing tag that points at another commit.
 - **Race between the two release workflows.** They share a `concurrency` group,
   so a `v*` and a `beta-v*` pushed together queue instead of one dying on a
   non-fast-forward with its images already public.
 
 ## What happened to `dev`
 
-Nothing releases from it any more. Channels are folders now, so the branch that
-used to *be* the beta channel has no special role — with it went
-`channel-sync.yaml`, the forward-merge PR bot, and the cross-branch metadata
-copy in `release-beta.yaml`.
+`dev` is the beta release source, while `main` remains the Home Assistant
+storefront. Make beta changes on `dev` and create `beta-v*` tags there. The
+beta release workflow checks that the tag is reachable from `origin/dev`, then
+checks out `main` and syncs the tagged `ha_opencode_beta/` directory onto it.
 
-Keep using `dev` (or any branch) as an ordinary integration branch for work in
-progress if you like. Merge it into `main` when it is ready. The thing it must
-no longer do is carry a release.
+Stable releases continue from `main`. A beta tag on `main` or a stable tag on
+`dev` fails its respective source-branch guard.
 
 ## Both add-ons on one machine
 
