@@ -25,6 +25,12 @@ assert_not_contains() {
     fi
 }
 
+assert_followed_by() {
+    local anchor="$1" expected="$2" file="$3"
+    grep -A1 -E "$anchor" "$file" | grep -Eq "$expected" \
+        || fail "expected $file to have $expected immediately after $anchor"
+}
+
 REMOTE="$WORK/remote.git"
 REPO="$WORK/repo"
 git init --bare "$REMOTE" >/dev/null
@@ -54,6 +60,10 @@ run_tag_script() {
         bash "$SCRIPT")
 }
 
+remote_tag_count() {
+    git -C "$REPO" ls-remote --tags origin | wc -l | tr -d ' '
+}
+
 commit_version 1.0.0.1 'test: initial stable version'
 first_sha="$(git -C "$REPO" rev-parse HEAD)"
 zero_sha=0000000000000000000000000000000000000000
@@ -63,6 +73,10 @@ test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.1 | cut -f1)" = "$first
 
 # A rerun after a successful tag push is a no-op.
 run_tag_script "$first_sha" "$zero_sha"
+test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.1 | cut -f1)" = "$first_sha" \
+    || fail "rerun changed the v1.0.0.1 tag"
+test "$(remote_tag_count)" = "1" \
+    || fail "rerun created an extra remote tag"
 
 # A config-only-unrelated commit with the same version does not create a new tag.
 printf 'unrelated\n' > "$REPO/README.test"
@@ -71,6 +85,10 @@ git -C "$REPO" commit -m 'test: unrelated main change' >/dev/null
 git -C "$REPO" push origin HEAD:main >/dev/null
 unchanged_sha="$(git -C "$REPO" rev-parse HEAD)"
 run_tag_script "$unchanged_sha" "$first_sha"
+test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.1 | cut -f1)" = "$first_sha" \
+    || fail "unchanged version changed the v1.0.0.1 tag"
+test "$(remote_tag_count)" = "1" \
+    || fail "unchanged version created an extra remote tag"
 
 # A new version creates exactly its own tag.
 commit_version 1.0.0.2 'test: bump stable version'
@@ -93,23 +111,28 @@ test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.3 | cut -f1)" = "$secon
 # Invalid versions fail before creating a tag.
 commit_version invalid 'test: invalid stable version'
 invalid_sha="$(git -C "$REPO" rev-parse HEAD)"
+invalid_tags_before="$(git -C "$REPO" tag --list)"
 if run_tag_script "$invalid_sha" "$collision_sha"; then
     fail "invalid version unexpectedly succeeded"
 fi
+invalid_tags_after="$(git -C "$REPO" tag --list)"
+test "$invalid_tags_after" = "$invalid_tags_before" \
+    || fail "invalid version changed the local tag list"
 test -z "$(git -C "$REPO" ls-remote origin refs/tags/vinvalid)" \
     || fail "invalid version created a tag"
 
 test -x "$SCRIPT" || fail "tag script is not executable"
 test -f "$WORKFLOW" || fail "automatic tag workflow is missing"
-assert_contains 'branches:[[:space:]]*\[main\]|branches:' "$WORKFLOW"
-assert_contains 'ha_opencode/config\.yaml' "$WORKFLOW"
-assert_contains 'secrets\.SYNC_TOKEN' "$WORKFLOW"
-assert_contains 'scripts/auto-tag-stable\.sh' "$WORKFLOW"
+assert_followed_by '^[[:space:]]*branches:[[:space:]]*$' '^[[:space:]]*-[[:space:]]+main[[:space:]]*$' "$WORKFLOW"
+assert_followed_by '^[[:space:]]*paths:[[:space:]]*$' '^[[:space:]]*-[[:space:]]+ha_opencode/config\.yaml[[:space:]]*$' "$WORKFLOW"
+assert_contains '^[[:space:]]*token:[[:space:]]*\$\{\{ secrets\.SYNC_TOKEN \}\}[[:space:]]*$' "$WORKFLOW"
+assert_contains '^[[:space:]]*run:[[:space:]]*bash[[:space:]]+scripts/auto-tag-stable\.sh[[:space:]]*$' "$WORKFLOW"
 assert_contains 'issues:[[:space:]]*write' "$WORKFLOW"
 assert_not_contains 'workflow_dispatch' "$WORKFLOW"
-assert_not_contains 'git push[^\n]*--force' "$WORKFLOW"
+assert_not_contains 'git[[:space:]]+push.*--force' "$WORKFLOW"
 assert_contains 'GITHUB_EVENT_BEFORE' "$SCRIPT"
 assert_contains 'git ls-remote origin' "$SCRIPT"
-assert_contains 'git push origin "\$TAG"' "$SCRIPT"
+assert_contains '^[[:space:]]*git[[:space:]]+push[[:space:]]+origin[[:space:]]+"\$TAG"[[:space:]]*$' "$SCRIPT"
+assert_not_contains 'git[[:space:]]+push.*--force' "$SCRIPT"
 
 printf 'automatic stable tagging tests passed\n'
