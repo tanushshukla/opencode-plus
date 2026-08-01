@@ -7,7 +7,6 @@ trap 'rm -rf "$WORK"' EXIT
 
 WORKFLOW="$ROOT/.github/workflows/auto-tag-stable.yml"
 SCRIPT="$ROOT/scripts/auto-tag-stable.sh"
-FORCE_PUSH='^git[[:space:]]+push[^;&|]*[[:space:]](--force-with-lease|--force|-f)([[:space:]=]|$)'
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -19,64 +18,55 @@ assert_contains() {
     grep -Eq "$pattern" "$file" || fail "expected $file to contain: $pattern"
 }
 
-normalize_shell_commands() {
-    awk '
-        function emit(line) {
-            if (line ~ /^[[:space:]]*git[[:space:]]+push([[:space:]]|$)/) {
-                sub(/[[:space:]]*#.*$/, "", line)
-                print line
-            }
-        }
-        {
-            line = $0
-            if (pending != "") {
-                pending = pending line
-                sub(/[[:space:]]*#.*$/, "", pending)
-                if (pending ~ /\\[[:space:]]*$/) {
-                    sub(/\\[[:space:]]*$/, "", pending)
-                    next
-                }
-                emit(pending)
-                pending = ""
-                next
-            }
-            if (line ~ /^[[:space:]]*git[[:space:]]+push([[:space:]]|$)/) {
-                sub(/[[:space:]]*#.*$/, "", line)
-                if (line ~ /\\[[:space:]]*$/) {
-                    sub(/\\[[:space:]]*$/, "", line)
-                    pending = line
-                    next
-                }
-                emit(line)
-            }
-        }
-        END {
-            if (pending != "") emit(pending)
-        }
-    ' | tr -d '\047\042\140' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
-}
-
-assert_no_force_push() {
-    local file="$1" contents="$2" normalized command_line
-    if ! normalized="$(printf '%s\n' "$contents" | normalize_shell_commands)"; then
-        fail "could not normalize shell commands while checking $file"
-    fi
-    while IFS= read -r command_line; do
-        if printf '%s\n' "$command_line" | grep -Eq "$FORCE_PUSH"; then
-            fail "expected $file not to contain a force-push command: $command_line"
-        fi
-    done <<< "$normalized"
-}
-
-if [ ! -f "$SCRIPT" ]; then
-    fail "tag helper is missing: $SCRIPT (Task 2 must add it before functional checks)"
-fi
-
 REMOTE="$WORK/remote.git"
 REPO="$WORK/repo"
 FAKE_BIN="$WORK/fake-bin"
 ISSUE_LOG="$WORK/gh-issues.log"
 FAKE_ERROR_LOG="$WORK/gh-errors.log"
+GIT_PUSH_LOG="$WORK/git-push-guard.log"
+
+if ! REAL_GIT="$(command -v git)"; then
+    fail "could not locate the real git executable before installing the test wrapper"
+fi
+
+setup_git_guard() {
+    mkdir -p "$FAKE_BIN"
+    : > "$GIT_PUSH_LOG"
+    cat > "$FAKE_BIN/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+real_git="${REAL_GIT:?REAL_GIT is required}"
+log="${GIT_PUSH_LOG:?GIT_PUSH_LOG is required}"
+seen_push=false
+
+for arg in "$@"; do
+    if [ "$arg" = "push" ]; then
+        seen_push=true
+        continue
+    fi
+    if [ "$seen_push" = true ]; then
+        case "$arg" in
+            -f|--force|--force-with-lease|-f=*|--force=*|--force-with-lease=*)
+                printf 'rejected force push: %s\n' "$*" >> "$log"
+                printf 'FAIL: runtime git wrapper rejected force push: %s\n' "$*" >&2
+                exit 1
+                ;;
+        esac
+    fi
+done
+
+exec "$real_git" "$@"
+EOF
+    chmod +x "$FAKE_BIN/git"
+}
+
+setup_git_guard
+
+if [ ! -f "$SCRIPT" ]; then
+    fail "tag helper is missing: $SCRIPT (Task 2 must add it before functional checks)"
+fi
+
 git init --bare "$REMOTE" >/dev/null
 git init "$REPO" >/dev/null
 git -C "$REPO" config user.name test
@@ -100,6 +90,9 @@ commit_version() {
 run_tag_script() {
     local sha="$1" before="$2"
     (cd "$REPO" && \
+        PATH="$FAKE_BIN:$PATH" \
+        REAL_GIT="$REAL_GIT" \
+        GIT_PUSH_LOG="$GIT_PUSH_LOG" \
         GITHUB_SHA="$sha" \
         GITHUB_EVENT_BEFORE="$before" \
         bash "$SCRIPT")
@@ -109,6 +102,8 @@ run_collision_tag_script() {
     local sha="$1" before="$2"
     (cd "$REPO" && \
         PATH="$FAKE_BIN:$PATH" \
+        REAL_GIT="$REAL_GIT" \
+        GIT_PUSH_LOG="$GIT_PUSH_LOG" \
         GH_TOKEN=test-token \
         GH_ISSUE_LOG="$ISSUE_LOG" \
         GH_FAKE_ERROR_LOG="$FAKE_ERROR_LOG" \
@@ -283,6 +278,7 @@ if run_collision_tag_script "$collision_sha" "$third_sha"; then
     fail "existing tag collision unexpectedly succeeded"
 fi
 test ! -s "$FAKE_ERROR_LOG" || fail "fake gh rejected the collision issue-list request"
+test ! -s "$GIT_PUSH_LOG" || fail "runtime git guard rejected a force push during collision"
 test "$(wc -l < "$ISSUE_LOG" | tr -d ' ')" = "1" \
     || fail "first collision did not create exactly one issue"
 collision_local_tags_after_first="$(git -C "$REPO" tag --list)"
@@ -297,6 +293,7 @@ if run_collision_tag_script "$collision_sha" "$third_sha"; then
     fail "repeated existing tag collision unexpectedly succeeded"
 fi
 test ! -s "$FAKE_ERROR_LOG" || fail "fake gh rejected the repeated collision issue-list request"
+test ! -s "$GIT_PUSH_LOG" || fail "runtime git guard rejected a force push during repeated collision"
 test "$(wc -l < "$ISSUE_LOG" | tr -d ' ')" = "1" \
     || fail "repeated collision created a duplicate issue"
 collision_local_tags_after_second="$(git -C "$REPO" tag --list)"
@@ -357,8 +354,7 @@ test -f "$WORKFLOW" || fail "automatic tag workflow is missing"
 if ! command -v ruby >/dev/null 2>&1; then
     fail "Ruby is required for structured workflow YAML assertions"
 fi
-if ! workflow_shell_commands="$(
-    ruby - "$WORKFLOW" <<'RUBY'
+if ! ruby - "$WORKFLOW" <<'RUBY'
 require 'yaml'
 
 path = ARGV.fetch(0)
@@ -392,18 +388,17 @@ abort 'actions/checkout@v6 must use SYNC_TOKEN' unless checkout_token == '${{ se
 run_steps = steps.select { |step| step['run'].is_a?(String) }
 helper_runs = run_steps.count { |step| step['run'] == 'bash scripts/auto-tag-stable.sh' }
 abort 'workflow must contain exactly one helper invocation step' unless helper_runs == 1
-
-run_steps.each { |step| puts step['run'] }
+direct_git_push = run_steps.any? do |step|
+  step['run'].split("\n").any? { |line| line =~ /^[[:space:]]*git[[:space:]]+["']?push["']?([[:space:]]|$)/ }
+end
+abort 'workflow must not directly run git push; the helper owns tag pushes' if direct_git_push
 RUBY
-)"; then
+then
     fail "workflow YAML contract assertion failed"
 fi
-assert_no_force_push "$WORKFLOW" "$workflow_shell_commands"
 
 assert_contains 'GITHUB_EVENT_BEFORE' "$SCRIPT"
 assert_contains 'git ls-remote origin' "$SCRIPT"
 assert_contains '^[[:space:]]*git[[:space:]]+push[[:space:]]+origin[[:space:]]+"\$TAG"[[:space:]]*$' "$SCRIPT"
-helper_shell_commands="$(<"$SCRIPT")"
-assert_no_force_push "$SCRIPT" "$helper_shell_commands"
 
 printf 'automatic stable tagging tests passed\n'
