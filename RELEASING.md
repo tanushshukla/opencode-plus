@@ -28,10 +28,9 @@ sees any other branch.
 
 Promotion copies the beta code paths over their stable counterparts. A hardcoded
 `"beta"` anywhere in `rootfs/` would travel with the copy and mislabel stable.
-The current build workflows do not pass `ADDON_CHANNEL`: both use
-`ha_opencode/` as the Docker context and Dockerfile, while `build-beta.yaml`
-publishes the beta image under `ha_opencode_beta` and reads
-`OPENCHAMBER_VERSION` from `ha_opencode_beta/build.yaml`.
+The stable workflow builds from `ha_opencode/` with `ADDON_CHANNEL=stable`,
+while `build-beta.yaml` builds from `ha_opencode_beta/` with
+`ADDON_CHANNEL=beta`.
 
 `scripts/promote-beta-to-stable.sh` enforces this: it refuses to finish if
 stable's `rootfs/` names the beta channel after a copy.
@@ -80,6 +79,8 @@ are allowed to differ, and a bot cannot tell "beta hasn't got this yet" from
 ### Promoting beta to stable
 
 ```bash
+git checkout main
+git pull --ff-only origin main
 scripts/promote-beta-to-stable.sh --check    # what would change
 scripts/promote-beta-to-stable.sh            # copy beta's code onto stable
 # ...write the "## 2.5.0" section in ha_opencode/CHANGELOG.md...
@@ -121,9 +122,9 @@ tag collision creates a tag, and tags trigger the build/release pipeline.
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `auto-tag-stable.yml` | Push to `main` changing `ha_opencode/config.yaml` | Checks version/tag state; if the stable version value changed, its format is valid, and no collision exists, creates `v<version>` with `SYNC_TOKEN` and starts the stable pipeline; unchanged values and same-commit tags are no-ops |
-| `build.yaml` | `v*` | Builds + pushes the stable image from `ha_opencode/` (amd64 + aarch64, then a multi-arch manifest) |
+| `build.yaml` | `v*` | Builds + pushes the stable image from `ha_opencode/` with `ADDON_CHANNEL=stable` (amd64 + aarch64, then a multi-arch manifest) |
 | `release.yaml` | `v*` | Writes `version:` into `ha_opencode/config.yaml` on main, creates the GitHub Release |
-| `build-beta.yaml` | `beta-v*` | Builds the beta image from `ha_opencode/` (amd64 + aarch64, then a multi-arch manifest), publishes it as `ha_opencode_beta`, and passes `OPENCHAMBER_VERSION` from `ha_opencode_beta/build.yaml`; it does not pass `ADDON_CHANNEL` |
+| `build-beta.yaml` | `beta-v*` | Builds the beta image from `ha_opencode_beta/` with `ADDON_CHANNEL=beta` (amd64 + aarch64, then a multi-arch manifest), publishes it as `ha_opencode_beta`, and passes `OPENCHAMBER_VERSION` from `ha_opencode_beta/build.yaml` |
 | `release-beta.yaml` | `beta-v*` | Checks the tag is reachable from `origin/dev`, checks out `main` for the storefront, syncs tagged `ha_opencode_beta/` onto `main`, writes `version:`/`image:`, asserts the beta `slug:`, and creates a prerelease |
 | `check-hab-update.yaml` | weekly | Reports the `HAB_VERSION` pin in both Dockerfiles against the latest hab release |
 

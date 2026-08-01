@@ -76,8 +76,8 @@ jobs:
       - name: Build and push ${{ matrix.ha_arch }} image
         uses: docker/build-push-action@v7
         with:
-          context: ha_opencode
-          file: ha_opencode/Dockerfile
+          context: ha_opencode_beta
+          file: ha_opencode_beta/Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
@@ -87,6 +87,7 @@ jobs:
             BUILD_FROM=ghcr.io/home-assistant/base-debian:trixie
             BUILD_VERSION=${{ steps.version.outputs.version }}
             BUILD_ARCH=${{ matrix.ha_arch }}
+            ADDON_CHANNEL=beta
             OPENCHAMBER_VERSION=${{ steps.beta_build_args.outputs.openchamber_version }}
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}-${{ matrix.ha_arch }}
           cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}-${{ matrix.ha_arch }}

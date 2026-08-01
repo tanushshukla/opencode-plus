@@ -24,6 +24,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+CURRENT_BRANCH="$(git branch --show-current)"
+if [ "${CURRENT_BRANCH}" != "main" ]; then
+    echo "error: promotion must run on main (current branch: ${CURRENT_BRANCH:-detached HEAD})" >&2
+    exit 1
+fi
+
 BETA="ha_opencode_beta"
 STABLE="ha_opencode"
 

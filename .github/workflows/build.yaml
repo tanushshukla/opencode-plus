@@ -75,6 +75,7 @@ jobs:
             BUILD_FROM=ghcr.io/home-assistant/base-debian:trixie
             BUILD_VERSION=${{ steps.version.outputs.version }}
             BUILD_ARCH=${{ matrix.ha_arch }}
+            ADDON_CHANNEL=stable
           cache-from: type=gha,scope=${{ env.IMAGE_NAME }}-${{ matrix.ha_arch }}
           cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}-${{ matrix.ha_arch }}
           labels: |
