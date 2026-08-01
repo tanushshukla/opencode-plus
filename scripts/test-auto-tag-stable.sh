@@ -40,6 +40,12 @@ real_git="${REAL_GIT:?REAL_GIT is required}"
 log="${GIT_PUSH_LOG:?GIT_PUSH_LOG is required}"
 seen_push=false
 
+reject_force_push() {
+    printf 'rejected force push: %s\n' "$*" >> "$log"
+    printf 'FAIL: runtime git wrapper rejected force push: %s\n' "$*" >&2
+    exit 1
+}
+
 for arg in "$@"; do
     if [ "$arg" = "push" ]; then
         seen_push=true
@@ -48,9 +54,12 @@ for arg in "$@"; do
     if [ "$seen_push" = true ]; then
         case "$arg" in
             -f|--force|--force-with-lease|-f=*|--force=*|--force-with-lease=*)
-                printf 'rejected force push: %s\n' "$*" >> "$log"
-                printf 'FAIL: runtime git wrapper rejected force push: %s\n' "$*" >&2
-                exit 1
+                reject_force_push "$@"
+                ;;
+            -[!-]*)
+                case "$arg" in
+                    *f*) reject_force_push "$@" ;;
+                esac
                 ;;
         esac
     fi
@@ -62,6 +71,22 @@ EOF
 }
 
 setup_git_guard
+
+assert_force_push_rejected() {
+    local option="$1"
+    : > "$GIT_PUSH_LOG"
+    if PATH="$FAKE_BIN:$PATH" \
+        REAL_GIT="$REAL_GIT" \
+        GIT_PUSH_LOG="$GIT_PUSH_LOG" \
+        "$FAKE_BIN/git" push origin "$option" 2> "$WORK/force-option-error.log"; then
+        fail "runtime git guard accepted force option ${option}"
+    fi
+    test -s "$GIT_PUSH_LOG" || fail "runtime git guard did not record force option ${option}"
+}
+
+for force_option in -f -fn -vf --force --force-with-lease; do
+    assert_force_push_rejected "$force_option"
+done
 
 if [ ! -f "$SCRIPT" ]; then
     fail "tag helper is missing: $SCRIPT (Task 2 must add it before functional checks)"
@@ -376,8 +401,13 @@ abort 'workflow must define jobs' unless jobs.is_a?(Hash)
 steps = []
 jobs.each do |job_name, job|
   abort "job #{job_name} must define steps" unless job.is_a?(Hash) && job['steps'].is_a?(Array)
-  steps.concat(job['steps'].select { |step| step.is_a?(Hash) })
+  abort "job #{job_name} steps must be mappings" unless job['steps'].all? { |step| step.is_a?(Hash) }
+  steps.concat(job['steps'])
 end
+abort 'workflow must contain exactly three planned steps' unless steps.length == 3
+
+token_steps = steps.select { |step| step['name'] == 'Detect sync token' }
+abort 'workflow must contain exactly one Detect sync token step' unless token_steps.length == 1
 
 checkout_steps = steps.select { |step| step['uses'] == 'actions/checkout@v6' }
 abort 'workflow must contain exactly one actions/checkout@v6 step' unless checkout_steps.length == 1
@@ -385,13 +415,8 @@ checkout_with = checkout_steps.first['with']
 checkout_token = checkout_with.is_a?(Hash) ? checkout_with['token'] : nil
 abort 'actions/checkout@v6 must use SYNC_TOKEN' unless checkout_token == '${{ secrets.SYNC_TOKEN }}'
 
-run_steps = steps.select { |step| step['run'].is_a?(String) }
-helper_runs = run_steps.count { |step| step['run'] == 'bash scripts/auto-tag-stable.sh' }
+helper_runs = steps.count { |step| step['run'] == 'bash scripts/auto-tag-stable.sh' }
 abort 'workflow must contain exactly one helper invocation step' unless helper_runs == 1
-direct_git_push = run_steps.any? do |step|
-  step['run'].split("\n").any? { |line| line =~ /^[[:space:]]*git[[:space:]]+["']?push["']?([[:space:]]|$)/ }
-end
-abort 'workflow must not directly run git push; the helper owns tag pushes' if direct_git_push
 RUBY
 then
     fail "workflow YAML contract assertion failed"
