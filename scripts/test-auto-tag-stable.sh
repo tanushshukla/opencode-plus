@@ -87,6 +87,7 @@ assert_force_push_rejected() {
 for force_option in -f -fn -vf --force --force-with-lease; do
     assert_force_push_rejected "$force_option"
 done
+: > "$GIT_PUSH_LOG"
 
 if [ ! -f "$SCRIPT" ]; then
     fail "tag helper is missing: $SCRIPT (Task 2 must add it before functional checks)"
