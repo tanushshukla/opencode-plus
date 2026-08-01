@@ -7,7 +7,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 WORKFLOW="$ROOT/.github/workflows/auto-tag-stable.yml"
 SCRIPT="$ROOT/scripts/auto-tag-stable.sh"
-FORCE_PUSH='^git[[:space:]]+push.*[[:space:]](--force-with-lease|--force|-f)([[:space:]=]|$)'
+FORCE_PUSH='^git[[:space:]]+push[^;&|]*[[:space:]](--force-with-lease|--force|-f)([[:space:]=]|$)'
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -21,33 +21,51 @@ assert_contains() {
 
 normalize_shell_commands() {
     awk '
+        function emit(line) {
+            if (line ~ /^[[:space:]]*git[[:space:]]+push([[:space:]]|$)/) {
+                sub(/[[:space:]]*#.*$/, "", line)
+                print line
+            }
+        }
         {
             line = $0
-            sub(/[[:space:]]*#.*$/, "", line)
-            if (line ~ /\\[[:space:]]*$/) {
-                sub(/\\[[:space:]]*$/, "", line)
+            if (pending != "") {
                 pending = pending line
+                sub(/[[:space:]]*#.*$/, "", pending)
+                if (pending ~ /\\[[:space:]]*$/) {
+                    sub(/\\[[:space:]]*$/, "", pending)
+                    next
+                }
+                emit(pending)
+                pending = ""
                 next
             }
-            print pending line
-            pending = ""
+            if (line ~ /^[[:space:]]*git[[:space:]]+push([[:space:]]|$)/) {
+                sub(/[[:space:]]*#.*$/, "", line)
+                if (line ~ /\\[[:space:]]*$/) {
+                    sub(/\\[[:space:]]*$/, "", line)
+                    pending = line
+                    next
+                }
+                emit(line)
+            }
         }
         END {
-            if (pending != "") print pending
+            if (pending != "") emit(pending)
         }
     ' | tr -d '\047\042\140' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
 }
 
 assert_no_force_push() {
-    local file="$1" contents="$2"
+    local file="$1" contents="$2" normalized command_line
+    if ! normalized="$(printf '%s\n' "$contents" | normalize_shell_commands)"; then
+        fail "could not normalize shell commands while checking $file"
+    fi
     while IFS= read -r command_line; do
-        while IFS= read -r command; do
-            command="${command#"${command%%[![:space:]]*}"}"
-            if printf '%s\n' "$command" | grep -Eq "$FORCE_PUSH"; then
-                fail "expected $file not to contain a force-push command: $command"
-            fi
-        done < <(printf '%s\n' "$command_line" | awk '{ line = $0; gsub(/[&|][&|]/, "\n", line); gsub(/[;&|]/, "\n", line); print line }')
-    done < <(printf '%s\n' "$contents" | normalize_shell_commands)
+        if printf '%s\n' "$command_line" | grep -Eq "$FORCE_PUSH"; then
+            fail "expected $file not to contain a force-push command: $command_line"
+        fi
+    done <<< "$normalized"
 }
 
 if [ ! -f "$SCRIPT" ]; then
@@ -148,26 +166,44 @@ EOF
     chmod +x "$FAKE_BIN/gh"
 }
 
-remote_tag_list() {
-    git -C "$REPO" ls-remote --tags origin | sort
+remote_ref_record() {
+    git -C "$REPO" ls-remote origin "$1"
 }
 
-remote_tag_count() {
-    remote_tag_list | wc -l | tr -d ' '
+remote_tag_inventory() {
+    local listing
+    if ! listing="$(git -C "$REPO" ls-remote --tags origin)"; then
+        return 1
+    fi
+    if ! printf '%s\n' "$listing" | sort; then
+        return 1
+    fi
 }
 
 commit_version 1.0.0.1 'test: initial stable version'
 first_sha="$(git -C "$REPO" rev-parse HEAD)"
 zero_sha=0000000000000000000000000000000000000000
 run_tag_script "$first_sha" "$zero_sha"
-test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.1 | cut -f1)" = "$first_sha" \
+if ! first_tag_record="$(remote_ref_record refs/tags/v1.0.0.1)"; then
+    fail "could not inspect the v1.0.0.1 remote tag"
+fi
+test "$(printf '%s' "$first_tag_record" | cut -f1)" = "$first_sha" \
     || fail "new version did not create v1.0.0.1 at the current commit"
+if ! first_remote_tags="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags after creating v1.0.0.1"
+fi
 
 # A rerun after a successful tag push is a no-op.
 run_tag_script "$first_sha" "$zero_sha"
-test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.1 | cut -f1)" = "$first_sha" \
+if ! rerun_tag_record="$(remote_ref_record refs/tags/v1.0.0.1)"; then
+    fail "could not inspect the v1.0.0.1 remote tag after rerun"
+fi
+test "$(printf '%s' "$rerun_tag_record" | cut -f1)" = "$first_sha" \
     || fail "rerun changed the v1.0.0.1 tag"
-test "$(remote_tag_count)" = "1" \
+if ! rerun_remote_tags="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags after rerun"
+fi
+test "$rerun_remote_tags" = "$first_remote_tags" \
     || fail "rerun created an extra remote tag"
 
 # A config-only-unrelated commit with the same version does not create a new tag.
@@ -177,35 +213,53 @@ git -C "$REPO" commit -m 'test: unrelated main change' >/dev/null
 git -C "$REPO" push origin HEAD:main >/dev/null
 unchanged_sha="$(git -C "$REPO" rev-parse HEAD)"
 run_tag_script "$unchanged_sha" "$first_sha"
-test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.1 | cut -f1)" = "$first_sha" \
+if ! unchanged_tag_record="$(remote_ref_record refs/tags/v1.0.0.1)"; then
+    fail "could not inspect the v1.0.0.1 remote tag after unchanged-version run"
+fi
+test "$(printf '%s' "$unchanged_tag_record" | cut -f1)" = "$first_sha" \
     || fail "unchanged version changed the v1.0.0.1 tag"
-test "$(remote_tag_count)" = "1" \
+if ! unchanged_remote_tags="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags after unchanged-version run"
+fi
+test "$unchanged_remote_tags" = "$first_remote_tags" \
     || fail "unchanged version created an extra remote tag"
 
 # A new version creates exactly its own tag.
-new_version_tags_before="$(remote_tag_list)"
+if ! new_version_tags_before="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags before v1.0.0.2"
+fi
 commit_version 1.0.0.2 'test: bump stable version'
 second_sha="$(git -C "$REPO" rev-parse HEAD)"
 run_tag_script "$second_sha" "$unchanged_sha"
-new_version_tag="$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.2)"
+if ! new_version_tag="$(remote_ref_record refs/tags/v1.0.0.2)"; then
+    fail "could not inspect the v1.0.0.2 remote tag"
+fi
 test "$(printf '%s' "$new_version_tag" | cut -f1)" = "$second_sha" \
     || fail "new version did not create v1.0.0.2 at the current commit"
-new_version_tags_after="$(remote_tag_list)"
+if ! new_version_tags_after="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags after v1.0.0.2"
+fi
 expected_new_version_tags="$(printf '%s\n%s' "$new_version_tags_before" "$new_version_tag" | sort)"
 test "$new_version_tags_after" = "$expected_new_version_tags" \
     || fail "new version changed the remote tags beyond v1.0.0.2"
 
 # A valid three-component version is accepted too.
 valid_version_local_tags_before="$(git -C "$REPO" tag --list)"
-valid_version_remote_tags_before="$(remote_tag_list)"
+if ! valid_version_remote_tags_before="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags before v1.2.3"
+fi
 commit_version 1.2.3 'test: accept three-component stable version'
 third_sha="$(git -C "$REPO" rev-parse HEAD)"
 run_tag_script "$third_sha" "$second_sha"
-valid_version_tag="$(git -C "$REPO" ls-remote origin refs/tags/v1.2.3)"
+if ! valid_version_tag="$(remote_ref_record refs/tags/v1.2.3)"; then
+    fail "could not inspect the v1.2.3 remote tag"
+fi
 test "$(printf '%s' "$valid_version_tag" | cut -f1)" = "$third_sha" \
     || fail "three-component version did not create v1.2.3 at the current commit"
 valid_version_local_tags_after="$(git -C "$REPO" tag --list)"
-valid_version_remote_tags_after="$(remote_tag_list)"
+if ! valid_version_remote_tags_after="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags after v1.2.3"
+fi
 expected_valid_version_local_tags="$(printf '%s\nv1.2.3' "$valid_version_local_tags_before" | sort)"
 expected_valid_version_remote_tags="$(printf '%s\n%s' "$valid_version_remote_tags_before" "$valid_version_tag" | sort)"
 test "$valid_version_local_tags_after" = "$expected_valid_version_local_tags" \
@@ -222,7 +276,9 @@ collision_sha="$(git -C "$REPO" rev-parse HEAD)"
 EXPECTED_ISSUE_TITLE='Automatic stable tag collision: v1.0.0.3'
 EXPECTED_ISSUE_BODY="Automatic stable tagging found version 1.0.0.3 on commit ${collision_sha}, but v1.0.0.3 already points to ${second_sha}. The existing tag was not moved. Bump the stable version or resolve this collision manually."
 collision_local_tags_before="$(git -C "$REPO" tag --list)"
-collision_remote_tags_before="$(remote_tag_list)"
+if ! collision_remote_tags_before="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags before collision"
+fi
 if run_collision_tag_script "$collision_sha" "$third_sha"; then
     fail "existing tag collision unexpectedly succeeded"
 fi
@@ -230,7 +286,9 @@ test ! -s "$FAKE_ERROR_LOG" || fail "fake gh rejected the collision issue-list r
 test "$(wc -l < "$ISSUE_LOG" | tr -d ' ')" = "1" \
     || fail "first collision did not create exactly one issue"
 collision_local_tags_after_first="$(git -C "$REPO" tag --list)"
-collision_remote_tags_after_first="$(remote_tag_list)"
+if ! collision_remote_tags_after_first="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags after first collision"
+fi
 test "$collision_local_tags_after_first" = "$collision_local_tags_before" \
     || fail "first collision changed the local tag inventory"
 test "$collision_remote_tags_after_first" = "$collision_remote_tags_before" \
@@ -242,26 +300,31 @@ test ! -s "$FAKE_ERROR_LOG" || fail "fake gh rejected the repeated collision iss
 test "$(wc -l < "$ISSUE_LOG" | tr -d ' ')" = "1" \
     || fail "repeated collision created a duplicate issue"
 collision_local_tags_after_second="$(git -C "$REPO" tag --list)"
-collision_remote_tags_after_second="$(remote_tag_list)"
+if ! collision_remote_tags_after_second="$(remote_tag_inventory)"; then
+    fail "could not snapshot remote tags after repeated collision"
+fi
 test "$collision_local_tags_after_second" = "$collision_local_tags_before" \
     || fail "repeated collision changed the local tag inventory"
 test "$collision_remote_tags_after_second" = "$collision_remote_tags_before" \
     || fail "repeated collision changed the remote tag inventory"
-test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.3 | cut -f1)" = "$second_sha" \
+if ! collision_tag_record="$(remote_ref_record refs/tags/v1.0.0.3)"; then
+    fail "could not inspect the v1.0.0.3 remote tag after collision"
+fi
+test "$(printf '%s' "$collision_tag_record" | cut -f1)" = "$second_sha" \
     || fail "existing tag was moved"
 
 # Malformed versions fail without changing local or remote tags.
 assert_invalid_version() {
     local version="$1" message="$2" before="$3"
     commit_version "$version" "$message"
-    local invalid_sha local_tags_before remote_tags_before local_tags_after remote_tags_after
+    local invalid_sha local_tags_before remote_tags_before local_tags_after remote_tags_after invalid_tag_record
     if ! invalid_sha="$(git -C "$REPO" rev-parse HEAD)"; then
         fail "could not determine commit for invalid version ${version}"
     fi
     if ! local_tags_before="$(git -C "$REPO" tag --list)"; then
         fail "could not snapshot local tags before invalid version ${version}"
     fi
-    if ! remote_tags_before="$(remote_tag_list)"; then
+    if ! remote_tags_before="$(remote_tag_inventory)"; then
         fail "could not snapshot remote tags before invalid version ${version}"
     fi
     if run_tag_script "$invalid_sha" "$before"; then
@@ -270,14 +333,17 @@ assert_invalid_version() {
     if ! local_tags_after="$(git -C "$REPO" tag --list)"; then
         fail "could not snapshot local tags after invalid version ${version}"
     fi
-    if ! remote_tags_after="$(remote_tag_list)"; then
+    if ! remote_tags_after="$(remote_tag_inventory)"; then
         fail "could not snapshot remote tags after invalid version ${version}"
     fi
     test "$local_tags_after" = "$local_tags_before" \
         || fail "invalid version ${version} changed the local tag list"
     test "$remote_tags_after" = "$remote_tags_before" \
         || fail "invalid version ${version} changed the remote tag list"
-    test -z "$(git -C "$REPO" ls-remote origin "refs/tags/v${version}")" \
+    if ! invalid_tag_record="$(remote_ref_record "refs/tags/v${version}")"; then
+        fail "could not inspect the v${version} remote tag"
+    fi
+    test -z "$invalid_tag_record" \
         || fail "invalid version ${version} created a tag"
     INVALID_SHA="$invalid_sha"
 }
