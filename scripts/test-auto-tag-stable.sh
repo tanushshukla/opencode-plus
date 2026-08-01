@@ -7,7 +7,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 WORKFLOW="$ROOT/.github/workflows/auto-tag-stable.yml"
 SCRIPT="$ROOT/scripts/auto-tag-stable.sh"
-FORCE_PUSH='git[[:space:]]+push.*[[:space:]](--force-with-lease|--force|-f)([[:space:]=]|$)'
+FORCE_PUSH='^git[[:space:]]+push.*[[:space:]](--force-with-lease|--force|-f)([[:space:]=]|$)'
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -20,14 +20,34 @@ assert_contains() {
 }
 
 normalize_shell_commands() {
-    tr '\n' ' ' | sed -E 's/\\[[:space:]]+/ /g; s/[[:space:]]+/ /g'
+    awk '
+        {
+            line = $0
+            sub(/[[:space:]]*#.*$/, "", line)
+            if (line ~ /\\[[:space:]]*$/) {
+                sub(/\\[[:space:]]*$/, "", line)
+                pending = pending line
+                next
+            }
+            print pending line
+            pending = ""
+        }
+        END {
+            if (pending != "") print pending
+        }
+    ' | tr -d '\047\042\140' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
 }
 
 assert_no_force_push() {
     local file="$1" contents="$2"
-    if printf '%s\n' "$contents" | normalize_shell_commands | grep -Eq "$FORCE_PUSH"; then
-        fail "expected $file not to contain a force-push command"
-    fi
+    while IFS= read -r command_line; do
+        while IFS= read -r command; do
+            command="${command#"${command%%[![:space:]]*}"}"
+            if printf '%s\n' "$command" | grep -Eq "$FORCE_PUSH"; then
+                fail "expected $file not to contain a force-push command: $command"
+            fi
+        done < <(printf '%s\n' "$command_line" | awk '{ line = $0; gsub(/[&|][&|]/, "\n", line); gsub(/[;&|]/, "\n", line); print line }')
+    done < <(printf '%s\n' "$contents" | normalize_shell_commands)
 }
 
 if [ ! -f "$SCRIPT" ]; then
@@ -38,6 +58,7 @@ REMOTE="$WORK/remote.git"
 REPO="$WORK/repo"
 FAKE_BIN="$WORK/fake-bin"
 ISSUE_LOG="$WORK/gh-issues.log"
+FAKE_ERROR_LOG="$WORK/gh-errors.log"
 git init --bare "$REMOTE" >/dev/null
 git init "$REPO" >/dev/null
 git -C "$REPO" config user.name test
@@ -72,6 +93,9 @@ run_collision_tag_script() {
         PATH="$FAKE_BIN:$PATH" \
         GH_TOKEN=test-token \
         GH_ISSUE_LOG="$ISSUE_LOG" \
+        GH_FAKE_ERROR_LOG="$FAKE_ERROR_LOG" \
+        EXPECTED_ISSUE_TITLE="$EXPECTED_ISSUE_TITLE" \
+        EXPECTED_ISSUE_BODY="$EXPECTED_ISSUE_BODY" \
         GITHUB_SHA="$sha" \
         GITHUB_EVENT_BEFORE="$before" \
         bash "$SCRIPT")
@@ -80,27 +104,46 @@ run_collision_tag_script() {
 setup_fake_gh() {
     mkdir -p "$FAKE_BIN"
     : > "$ISSUE_LOG"
+    : > "$FAKE_ERROR_LOG"
     cat > "$FAKE_BIN/gh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
 log="${GH_ISSUE_LOG:?GH_ISSUE_LOG is required}"
-case "${1:-} ${2:-}" in
-    "issue list")
-        if [ -s "$log" ]; then
-            printf '1\n'
-        else
-            printf '0\n'
-        fi
-        ;;
-    "issue create")
-        printf 'create\n' >> "$log"
-        ;;
-    *)
-        printf 'unexpected gh invocation: %s\n' "$*" >&2
-        exit 1
-        ;;
-esac
+error_log="${GH_FAKE_ERROR_LOG:?GH_FAKE_ERROR_LOG is required}"
+title="${EXPECTED_ISSUE_TITLE:?EXPECTED_ISSUE_TITLE is required}"
+body="${EXPECTED_ISSUE_BODY:?EXPECTED_ISSUE_BODY is required}"
+
+reject() {
+    printf '%s\n' "$*" > "$error_log"
+    printf 'fake gh validation failed: %s\n' "$*" >&2
+    exit 1
+}
+
+expected_search="in:title \"$title\""
+if [ "${1:-}" = issue ] && [ "${2:-}" = list ]; then
+    expected=(issue list --state open --search "$expected_search" --json number --jq length)
+    actual=("$@")
+    [ "$#" -eq "${#expected[@]}" ] || reject "unexpected issue list argument count"
+    for index in "${!expected[@]}"; do
+        [ "${actual[$index]}" = "${expected[$index]}" ] || reject "unexpected issue list argument at index ${index}"
+    done
+    if [ -s "$log" ]; then
+        printf '1\n'
+    else
+        printf '0\n'
+    fi
+elif [ "${1:-}" = issue ] && [ "${2:-}" = create ]; then
+    expected=(issue create --title "$title" --body "$body")
+    actual=("$@")
+    [ "$#" -eq "${#expected[@]}" ] || reject "unexpected issue create argument count"
+    for index in "${!expected[@]}"; do
+        [ "${actual[$index]}" = "${expected[$index]}" ] || reject "unexpected issue create argument at index ${index}"
+    done
+    printf 'create\n' >> "$log"
+else
+    reject "unexpected gh invocation: $*"
+fi
 EOF
     chmod +x "$FAKE_BIN/gh"
 }
@@ -153,11 +196,22 @@ test "$new_version_tags_after" = "$expected_new_version_tags" \
     || fail "new version changed the remote tags beyond v1.0.0.2"
 
 # A valid three-component version is accepted too.
+valid_version_local_tags_before="$(git -C "$REPO" tag --list)"
+valid_version_remote_tags_before="$(remote_tag_list)"
 commit_version 1.2.3 'test: accept three-component stable version'
 third_sha="$(git -C "$REPO" rev-parse HEAD)"
 run_tag_script "$third_sha" "$second_sha"
-test "$(git -C "$REPO" ls-remote origin refs/tags/v1.2.3 | cut -f1)" = "$third_sha" \
+valid_version_tag="$(git -C "$REPO" ls-remote origin refs/tags/v1.2.3)"
+test "$(printf '%s' "$valid_version_tag" | cut -f1)" = "$third_sha" \
     || fail "three-component version did not create v1.2.3 at the current commit"
+valid_version_local_tags_after="$(git -C "$REPO" tag --list)"
+valid_version_remote_tags_after="$(remote_tag_list)"
+expected_valid_version_local_tags="$(printf '%s\nv1.2.3' "$valid_version_local_tags_before" | sort)"
+expected_valid_version_remote_tags="$(printf '%s\n%s' "$valid_version_remote_tags_before" "$valid_version_tag" | sort)"
+test "$valid_version_local_tags_after" = "$expected_valid_version_local_tags" \
+    || fail "three-component version changed local tags beyond v1.2.3"
+test "$valid_version_remote_tags_after" = "$expected_valid_version_remote_tags" \
+    || fail "three-component version changed remote tags beyond v1.2.3"
 
 # A changed version cannot move an existing tag.
 git -C "$REPO" tag v1.0.0.3 "$second_sha"
@@ -165,16 +219,34 @@ git -C "$REPO" push origin v1.0.0.3 >/dev/null
 setup_fake_gh
 commit_version 1.0.0.3 'test: collide with existing stable tag'
 collision_sha="$(git -C "$REPO" rev-parse HEAD)"
+EXPECTED_ISSUE_TITLE='Automatic stable tag collision: v1.0.0.3'
+EXPECTED_ISSUE_BODY="Automatic stable tagging found version 1.0.0.3 on commit ${collision_sha}, but v1.0.0.3 already points to ${second_sha}. The existing tag was not moved. Bump the stable version or resolve this collision manually."
+collision_local_tags_before="$(git -C "$REPO" tag --list)"
+collision_remote_tags_before="$(remote_tag_list)"
 if run_collision_tag_script "$collision_sha" "$third_sha"; then
     fail "existing tag collision unexpectedly succeeded"
 fi
+test ! -s "$FAKE_ERROR_LOG" || fail "fake gh rejected the collision issue-list request"
 test "$(wc -l < "$ISSUE_LOG" | tr -d ' ')" = "1" \
     || fail "first collision did not create exactly one issue"
+collision_local_tags_after_first="$(git -C "$REPO" tag --list)"
+collision_remote_tags_after_first="$(remote_tag_list)"
+test "$collision_local_tags_after_first" = "$collision_local_tags_before" \
+    || fail "first collision changed the local tag inventory"
+test "$collision_remote_tags_after_first" = "$collision_remote_tags_before" \
+    || fail "first collision changed the remote tag inventory"
 if run_collision_tag_script "$collision_sha" "$third_sha"; then
     fail "repeated existing tag collision unexpectedly succeeded"
 fi
+test ! -s "$FAKE_ERROR_LOG" || fail "fake gh rejected the repeated collision issue-list request"
 test "$(wc -l < "$ISSUE_LOG" | tr -d ' ')" = "1" \
     || fail "repeated collision created a duplicate issue"
+collision_local_tags_after_second="$(git -C "$REPO" tag --list)"
+collision_remote_tags_after_second="$(remote_tag_list)"
+test "$collision_local_tags_after_second" = "$collision_local_tags_before" \
+    || fail "repeated collision changed the local tag inventory"
+test "$collision_remote_tags_after_second" = "$collision_remote_tags_before" \
+    || fail "repeated collision changed the remote tag inventory"
 test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.3 | cut -f1)" = "$second_sha" \
     || fail "existing tag was moved"
 
@@ -182,14 +254,25 @@ test "$(git -C "$REPO" ls-remote origin refs/tags/v1.0.0.3 | cut -f1)" = "$secon
 assert_invalid_version() {
     local version="$1" message="$2" before="$3"
     commit_version "$version" "$message"
-    local invalid_sha="$(git -C "$REPO" rev-parse HEAD)"
-    local local_tags_before="$(git -C "$REPO" tag --list)"
-    local remote_tags_before="$(remote_tag_list)"
+    local invalid_sha local_tags_before remote_tags_before local_tags_after remote_tags_after
+    if ! invalid_sha="$(git -C "$REPO" rev-parse HEAD)"; then
+        fail "could not determine commit for invalid version ${version}"
+    fi
+    if ! local_tags_before="$(git -C "$REPO" tag --list)"; then
+        fail "could not snapshot local tags before invalid version ${version}"
+    fi
+    if ! remote_tags_before="$(remote_tag_list)"; then
+        fail "could not snapshot remote tags before invalid version ${version}"
+    fi
     if run_tag_script "$invalid_sha" "$before"; then
         fail "invalid version ${version} unexpectedly succeeded"
     fi
-    local local_tags_after="$(git -C "$REPO" tag --list)"
-    local remote_tags_after="$(remote_tag_list)"
+    if ! local_tags_after="$(git -C "$REPO" tag --list)"; then
+        fail "could not snapshot local tags after invalid version ${version}"
+    fi
+    if ! remote_tags_after="$(remote_tag_list)"; then
+        fail "could not snapshot remote tags after invalid version ${version}"
+    fi
     test "$local_tags_after" = "$local_tags_before" \
         || fail "invalid version ${version} changed the local tag list"
     test "$remote_tags_after" = "$remote_tags_before" \
@@ -201,9 +284,13 @@ assert_invalid_version() {
 
 assert_invalid_version 1.0 'test: reject two-component stable version' "$collision_sha"
 assert_invalid_version 1.0.foo 'test: reject non-numeric stable version' "$INVALID_SHA"
+assert_invalid_version 1.0.0.foo 'test: reject four-component non-numeric stable version' "$INVALID_SHA"
 
 test -x "$SCRIPT" || fail "tag script is not executable"
 test -f "$WORKFLOW" || fail "automatic tag workflow is missing"
+if ! command -v ruby >/dev/null 2>&1; then
+    fail "Ruby is required for structured workflow YAML assertions"
+fi
 if ! workflow_shell_commands="$(
     ruby - "$WORKFLOW" <<'RUBY'
 require 'yaml'
@@ -222,25 +309,21 @@ abort 'workflow must not define workflow_dispatch' if trigger.key?('workflow_dis
 permissions = doc['permissions']
 abort 'workflow must grant issues: write' unless permissions.is_a?(Hash) && permissions['issues'] == 'write'
 
-def collect_hashes(value, hashes)
-  case value
-  when Hash
-    hashes << value
-    value.each_value { |child| collect_hashes(child, hashes) }
-  when Array
-    value.each { |child| collect_hashes(child, hashes) }
-  end
+jobs = doc['jobs']
+abort 'workflow must define jobs' unless jobs.is_a?(Hash)
+steps = []
+jobs.each do |job_name, job|
+  abort "job #{job_name} must define steps" unless job.is_a?(Hash) && job['steps'].is_a?(Array)
+  steps.concat(job['steps'].select { |step| step.is_a?(Hash) })
 end
 
-hashes = []
-collect_hashes(doc, hashes)
-checkout_steps = hashes.select { |hash| hash['uses'] == 'actions/checkout@v6' }
+checkout_steps = steps.select { |step| step['uses'] == 'actions/checkout@v6' }
 abort 'workflow must contain exactly one actions/checkout@v6 step' unless checkout_steps.length == 1
 checkout_with = checkout_steps.first['with']
 checkout_token = checkout_with.is_a?(Hash) ? checkout_with['token'] : nil
 abort 'actions/checkout@v6 must use SYNC_TOKEN' unless checkout_token == '${{ secrets.SYNC_TOKEN }}'
 
-run_steps = hashes.select { |hash| hash['run'].is_a?(String) }
+run_steps = steps.select { |step| step['run'].is_a?(String) }
 helper_runs = run_steps.count { |step| step['run'] == 'bash scripts/auto-tag-stable.sh' }
 abort 'workflow must contain exactly one helper invocation step' unless helper_runs == 1
 
