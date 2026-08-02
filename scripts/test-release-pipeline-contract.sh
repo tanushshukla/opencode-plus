@@ -49,7 +49,8 @@ abort "Dockerfile must be #{expected_file}" unless with['file'] == expected_file
 build_args = with['build-args']
 abort 'build step must define build-args' unless build_args.is_a?(String)
 expected_arg = "ADDON_CHANNEL=#{channel}"
-abort "build args must include #{expected_arg}" unless build_args.lines.any? { |line| line.strip == expected_arg }
+channel_args = build_args.lines.map(&:strip).grep(/\AADDON_CHANNEL=/)
+abort "build args must define exactly #{expected_arg}" unless channel_args == [expected_arg]
 RUBY
 }
 
