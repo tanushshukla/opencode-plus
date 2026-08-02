@@ -31,22 +31,10 @@ jobs:
         README.md
         repository.yaml
     steps:
-      - name: Detect sync token
-        env:
-          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
-        run: |
-          if [ -z "$SYNC_TOKEN" ]; then
-            echo "::error::SYNC_TOKEN is required to mirror upstream workflow files. Create a PAT with repository contents and workflow write permission, then add it as the SYNC_TOKEN repository secret."
-            exit 1
-          fi
-
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          # The default GITHUB_TOKEN cannot push commits that change workflow
-          # files. SYNC_TOKEN must be a PAT with workflow write permission.
-          token: ${{ secrets.SYNC_TOKEN }}
 
       - name: Configure git
         run: |
@@ -88,8 +76,13 @@ jobs:
               git checkout --theirs -- "$file"
               git add -- "$file"
             elif [[ "$file" == .github/workflows/* ]]; then
-              git checkout --theirs -- "$file"
-              git add -- "$file"
+              # Workflow files contain fork-specific registry and release
+              # behavior. Keep this fork's version during conflict resolution.
+              if git cat-file -e "HEAD:$file" 2>/dev/null; then
+                git checkout HEAD -- "$file"
+              else
+                git rm -f --quiet -- "$file"
+              fi
             else
               unmanaged="$unmanaged $file"
             fi
@@ -104,6 +97,28 @@ jobs:
 
           echo "result=clean" >> "$GITHUB_OUTPUT"
         continue-on-error: true
+
+      - name: Preserve fork workflow files
+        if: steps.check.outputs.new == 'true' && steps.merge.outputs.result == 'clean'
+        env:
+          BASE: ${{ steps.merge.outputs.base }}
+        run: |
+          changed="$(git diff --name-only --cached "$BASE" -- .github/workflows)"
+          if [ -z "$changed" ]; then
+            echo "Merge brings no workflow changes."
+            exit 0
+          fi
+
+          echo "Preserving fork workflow files instead of mirroring upstream:"
+          echo "$changed"
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            if git cat-file -e "$BASE:$file" 2>/dev/null; then
+              git checkout "$BASE" -- "$file"
+            else
+              git rm -f --quiet -- "$file"
+            fi
+          done <<< "$changed"
 
       - name: Re-apply plus overlay and push
         if: steps.check.outputs.new == 'true' && steps.merge.outputs.result == 'clean'
