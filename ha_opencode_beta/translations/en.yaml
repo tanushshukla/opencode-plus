@@ -38,6 +38,10 @@ configuration:
     name: "MCP integration"
     description: "Let OpenCode query your entities and call services through its built-in Model Context Protocol (MCP) server, so you can ask it to turn on the living room lights or check the bedroom temperature."
 
+  mcp_tool_profile:
+    name: "MCP tool profile"
+    description: "Controls which built-in Home Assistant MCP tools OpenCode receives. 'compact' is read-only diagnostics, 'configuration' adds documentation, validation and safe config writes, and 'full' keeps every existing tool including control and administration. A smaller profile reduces prompt size and tool-selection ambiguity, especially for local models."
+
   lsp_enabled:
     name: "LSP integration"
     description: "Give OpenCode live diagnostics, entity and service auto-completion, and validation while it edits Home Assistant YAML, through the Language Server Protocol (LSP)."
@@ -121,3 +125,7 @@ configuration:
   opencode_config:
     name: "Custom OpenCode configuration"
     description: "A JSON object merged into OpenCode's own configuration, for providers, keybindings, permission rules and similar. Leave empty for the defaults; the full schema is at https://opencode.ai/docs/config."
+
+  user_hooks_enabled:
+    name: "Startup hooks (beta)"
+    description: "Runs your own .sh scripts from the 'startup.d' folder in this add-on's directory, once every time the add-on starts — the supported way to add a bridge, a small service or an extra tool without editing files inside the container. These scripts are yours: they run as root with access to the Home Assistant API, and the add-on does not check, supervise or restart them. Anything that can write to your configuration folder can therefore run code here, so leave this off unless you want it. Turn it on, restart, then run 'ha-hooks list' in the terminal; the folder is created with a README and a worked example."

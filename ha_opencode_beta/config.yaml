@@ -1,7 +1,7 @@
 ---
 name: "OpenCode+ Beta"
 description: "Beta channel for OpenCode - AI coding agent for Home Assistant. May contain experimental features."
-version: "2.3.9b3"
+version: "2.4.1b2"
 slug: "ha_opencode_beta"
 image: "ghcr.io/tanushshukla/ha_opencode_beta"
 url: "https://github.com/tanushshukla/opencode-plus"
@@ -82,6 +82,9 @@ options:
 
   # --- 2. Home Assistant integration -------------------------------------
   mcp_enabled: true
+  # Scope the built-in MCP tools to reduce tool-selection complexity and prompt
+  # size for local models. full preserves every existing tool.
+  mcp_tool_profile: "full"
   lsp_enabled: true
   # Screenshot tool: visual verification of dashboards and UI changes.
   # Requires the access token below to authenticate with the HA frontend.
@@ -156,6 +159,11 @@ options:
   env_vars: []
   # Custom OpenCode configuration (JSON)
   opencode_config: ""
+  # Run your own .sh scripts from <config>/opencode_beta/startup.d at every
+  # start. This is the supported way to extend the add-on, and it executes code
+  # the add-on did not write, as root. Off by default; last in the list because
+  # it is the option with the widest blast radius.
+  user_hooks_enabled: false
 
 schema:
   # --- 1. Presentation ---------------------------------------------------
@@ -168,6 +176,7 @@ schema:
 
   # --- 2. Home Assistant integration -------------------------------------
   mcp_enabled: bool
+  mcp_tool_profile: list(compact|configuration|full)
   lsp_enabled: bool
   screenshot_enabled: bool
   access_token: password
@@ -205,6 +214,7 @@ schema:
     - name: str
       value: str
   opencode_config: str?
+  user_hooks_enabled: bool
 
 # Exclude caches from backups
 backup_exclude:
@@ -214,6 +224,10 @@ backup_exclude:
   - ".local/share/opencode/cache/*"
   - ".env_vars"
   - ".env_vars_discovered"
+  - "evaluations/*"
   # Generated home context is rebuilt at every start; restoring a stale copy
   # would describe a different installation.
   - "context/*"
+  # Startup-hook output. Hooks run with the Supervisor token and any keys the
+  # user configured, so whatever they print must not travel in a backup.
+  - "hooks/*"
