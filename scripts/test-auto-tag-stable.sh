@@ -132,6 +132,17 @@ run_tag_script() {
         bash "$SCRIPT")
 }
 
+run_reconcile_tag_script() {
+    local sha="$1"
+    (cd "$REPO" && \
+        PATH="$FAKE_BIN:$PATH" \
+        REAL_GIT="$REAL_GIT" \
+        GIT_PUSH_LOG="$GIT_PUSH_LOG" \
+        GITHUB_SHA="$sha" \
+        RECONCILE_MISSING_TAG=true \
+        bash "$SCRIPT")
+}
+
 run_collision_tag_script() {
     local sha="$1" before="$2"
     (cd "$REPO" && \
@@ -272,6 +283,15 @@ expected_new_version_tags="$(printf '%s\n%s' "$new_version_tags_before" "$new_ve
 test "$new_version_tags_after" = "$expected_new_version_tags" \
     || fail "new version changed the remote tags beyond v1.0.0.2"
 
+# Scheduled/manual reconciliation must not mistake an existing release tag on
+# an older commit for a collision. It only fills genuinely missing tags.
+run_reconcile_tag_script "$second_sha"
+if ! reconciled_tag_record="$(remote_ref_record refs/tags/v1.0.0.2)"; then
+    fail "could not inspect the v1.0.0.2 remote tag after reconciliation"
+fi
+test "$(printf '%s' "$reconciled_tag_record" | cut -f1)" = "$second_sha" \
+    || fail "reconciliation changed the existing v1.0.0.2 tag"
+
 # A valid three-component version is accepted too.
 valid_version_local_tags_before="$(git -C "$REPO" tag --list)"
 if ! valid_version_remote_tags_before="$(remote_tag_inventory)"; then
@@ -397,12 +417,15 @@ abort 'workflow YAML root must be a mapping' unless doc.is_a?(Hash)
 
 trigger = doc['on'] || doc[true]
 abort 'workflow must define an on trigger' unless trigger.is_a?(Hash)
-abort 'workflow on must contain exactly push' unless trigger.keys == ['push']
+abort 'workflow on must contain push, schedule, and workflow_dispatch' unless trigger.keys.sort == %w[push schedule workflow_dispatch]
 push = trigger['push']
 abort 'workflow must define on.push' unless push.is_a?(Hash)
 abort 'on.push must contain exactly branches and paths' unless push.keys.sort == %w[branches paths]
 abort 'on.push.branches must be exactly [main]' unless push['branches'] == ['main']
 abort 'on.push.paths must be exactly [ha_opencode/config.yaml]' unless push['paths'] == ['ha_opencode/config.yaml']
+schedule = trigger['schedule']
+abort 'workflow must reconcile on an hourly schedule' unless schedule == [{'cron' => '17 * * * *'}]
+abort 'workflow must support manual reconciliation' unless trigger['workflow_dispatch'] == {}
 permissions = doc['permissions']
 abort 'workflow must grant issues: write' unless permissions.is_a?(Hash) && permissions['issues'] == 'write'
 
@@ -429,13 +452,16 @@ checkout_with = checkout_step['with']
 checkout_token = checkout_with.is_a?(Hash) ? checkout_with['token'] : nil
 abort 'actions/checkout@v6 must use SYNC_TOKEN' unless checkout_token == '${{ secrets.SYNC_TOKEN }}'
 
-abort 'step 3 must invoke the helper exactly' unless steps[2]['run'] == 'bash scripts/auto-tag-stable.sh'
+tag_step = steps[2]
+abort 'step 3 must invoke the helper exactly' unless tag_step['run'] == 'bash scripts/auto-tag-stable.sh'
+abort 'step 3 must reconcile missing tags outside push events' unless tag_step.dig('env', 'RECONCILE_MISSING_TAG') == '${{ github.event_name != \'push\' }}'
 RUBY
 then
     fail "workflow YAML contract assertion failed"
 fi
 
 assert_contains 'GITHUB_EVENT_BEFORE' "$SCRIPT"
+assert_contains 'RECONCILE_MISSING_TAG' "$SCRIPT"
 assert_contains 'git ls-remote origin' "$SCRIPT"
 assert_contains '^[[:space:]]*git[[:space:]]+push[[:space:]]+origin[[:space:]]+"\$TAG"[[:space:]]*$' "$SCRIPT"
 

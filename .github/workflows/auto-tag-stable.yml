@@ -7,6 +7,12 @@ on:
       - main
     paths:
       - ha_opencode/config.yaml
+  # A GITHUB_TOKEN push cannot start another workflow. Reconcile periodically
+  # so a future non-triggering metadata update cannot leave Home Assistant
+  # advertising a version whose container image was never published.
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -37,9 +43,10 @@ jobs:
           persist-credentials: true
           token: ${{ secrets.SYNC_TOKEN }}
 
-      - name: Create stable release tag when the version changes
+      - name: Create or reconcile stable release tag
         env:
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
           GITHUB_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
+          RECONCILE_MISSING_TAG: ${{ github.event_name != 'push' }}
         run: bash scripts/auto-tag-stable.sh

@@ -4,6 +4,7 @@ set -euo pipefail
 CONFIG_PATH="${CONFIG_PATH:-ha_opencode/config.yaml}"
 BEFORE="${GITHUB_EVENT_BEFORE:-}"
 CURRENT_SHA="${GITHUB_SHA:?GITHUB_SHA is required}"
+RECONCILE_MISSING_TAG="${RECONCILE_MISSING_TAG:-false}"
 ZERO_SHA=0000000000000000000000000000000000000000
 
 extract_version() {
@@ -33,7 +34,7 @@ if ! remote_sha="$(git ls-remote origin "refs/tags/${TAG}" | awk 'NR == 1 { prin
 fi
 
 if [[ -z "$remote_sha" ]]; then
-    if [[ "$version_changed" != true ]]; then
+    if [[ "$version_changed" != true && "$RECONCILE_MISSING_TAG" != true ]]; then
         echo "Stable version ${current_version} is unchanged and not tagged; no release action taken."
         exit 0
     fi
@@ -68,6 +69,11 @@ if [[ -z "$remote_sha" ]]; then
 else
     git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}" >/dev/null
     tag_sha="$(git rev-parse "${TAG}^{commit}")"
+fi
+
+if [[ "$RECONCILE_MISSING_TAG" == true ]]; then
+    echo "Stable release tag ${TAG} already exists at ${tag_sha}; reconciliation no-op."
+    exit 0
 fi
 
 if [[ "$tag_sha" == "$CURRENT_SHA" ]]; then
