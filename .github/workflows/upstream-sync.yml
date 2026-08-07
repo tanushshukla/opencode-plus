@@ -7,7 +7,11 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  # The sync commit must use SYNC_TOKEN, not GITHUB_TOKEN: GitHub deliberately
+  # suppresses push-triggered workflows created by GITHUB_TOKEN.  The push must
+  # therefore be attributable to the release token so Auto-tag Stable creates
+  # the tag that starts the image build.
+  contents: read
   issues: write
 
 concurrency:
@@ -35,6 +39,16 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Verify release token
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          if [ -z "$SYNC_TOKEN" ]; then
+            echo "::error::SYNC_TOKEN is required: upstream sync commits must trigger Auto-tag Stable."
+            exit 1
+          fi
 
       - name: Configure git
         run: |

@@ -54,6 +54,24 @@ abort "build args must define exactly #{expected_arg}" unless channel_args == [e
 RUBY
 }
 
+assert_upstream_sync_triggers_auto_tag() {
+    ruby - "$ROOT/.github/workflows/upstream-sync.yml" <<'RUBY'
+require 'yaml'
+
+workflow = YAML.load_file(ARGV.fetch(0))
+steps = workflow.dig('jobs', 'sync', 'steps')
+abort 'upstream sync must define sync job steps' unless steps.is_a?(Array)
+
+checkout = steps.find { |step| step.is_a?(Hash) && step['uses'] == 'actions/checkout@v6' }
+abort 'upstream sync must use actions/checkout@v6' unless checkout
+token = checkout.dig('with', 'token')
+abort 'upstream sync checkout must use SYNC_TOKEN so its push triggers Auto-tag Stable' unless token == '${{ secrets.SYNC_TOKEN }}'
+
+verify = steps.find { |step| step.is_a?(Hash) && step['name'] == 'Verify release token' }
+abort 'upstream sync must fail clearly when SYNC_TOKEN is unavailable' unless verify && verify['run'].include?('SYNC_TOKEN is required')
+RUBY
+}
+
 assert_non_main_promotion_is_rejected() {
     local work output
     work="$(mktemp -d "${TMPDIR:-/tmp}/opencode-promotion-contract.XXXXXX")"
@@ -115,6 +133,8 @@ check 'stable workflow uses stable context/file and channel arg' \
 check 'beta workflow uses beta context/file and channel arg' \
     assert_build_workflow \
     "$ROOT/.github/workflows/build-beta.yaml" beta ha_opencode_beta ha_opencode_beta/Dockerfile
+check 'upstream sync push uses SYNC_TOKEN to trigger stable auto-tagging' \
+    assert_upstream_sync_triggers_auto_tag
 check 'promotion script is executable' test -x "$ROOT/scripts/promote-beta-to-stable.sh"
 check 'promotion rejects a non-main branch' assert_non_main_promotion_is_rejected
 check 'promotion docs require main checkout and synchronization' assert_promotion_docs_require_main
