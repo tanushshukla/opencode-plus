@@ -1,7 +1,24 @@
 # Changelog
 
-## 2.4.2b0
+## 2.4.2b5
 
+- **OpenChamber restarts no longer leave port-holding orphan processes** — the server and Home Assistant Ingress proxy are now independently supervised, so restarting either cannot strand the other on ports 3010 or 8099.
+
+## 2.4.2b4
+
+- **Unambiguous history timestamps ([issue #94](https://github.com/magnusoverli/opencode/issues/94))** — history, logbook, and calendar queries now require caller-provided timestamps to include `Z` or a UTC offset, preventing Home Assistant local-time interpretation from silently shifting requested windows.
+
+## 2.4.2b3
+
+- **Supervisor operations diagnostics** — six new read-only tools provide bounded health, Resolution, backup posture, support-log, store-audit, and metrics evidence without exposing network addresses, backup locations, repository credentials, app options, or unredacted log secrets.
+
+## 2.4.2b2
+
+- **Supervisor apps API compatibility ([issue #90](https://github.com/magnusoverli/opencode/issues/90))** — Home Assistant update checks, app changelogs, ESPHome discovery, and startup service discovery now prefer the feature-gated Supervisor V2 apps API while safely retaining V1 add-ons API support.
+
+## 2.4.2b1
+
+- **Firefox terminal sizing ([issue #87](https://github.com/magnusoverli/opencode/issues/87))** — the Home Assistant Ingress terminal now reconciles an inconsistent Firefox pixel ratio with the actual terminal canvas, so high-DPI displays render at the full viewport width without affecting other browsers or page code.
 - **OpenChamber 1.18.1** — updates the pinned web UI through the latest upstream release while preserving Home Assistant Ingress sign-in: browser OAuth providers with a container-local callback now show the paste-code flow, so the add-on can replay the failed localhost redirect inside the container instead of waiting for a browser redirect it cannot receive.
 
 ## 2.4.1b3

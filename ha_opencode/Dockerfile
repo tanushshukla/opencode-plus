@@ -29,7 +29,7 @@ ARG BUILD_ARCH
 ARG ADDON_CHANNEL=stable
 ARG TTYD_VERSION=1.7.7
 ARG OPENCODE_VERSION=latest
-ARG OPENCHAMBER_VERSION=1.16.2
+ARG OPENCHAMBER_VERSION=1.18.1
 ARG PPQ_PROXY_VERSION=0.1.0
 ARG TSX_VERSION=4.20.6
 ARG YQ_VERSION=v4.53.3
@@ -153,6 +153,7 @@ RUN chmod +x /usr/local/bin/* \
     && chmod +x /etc/s6-overlay/s6-rc.d/init-opencode/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-openchamber/run \
+    && chmod +x /etc/s6-overlay/s6-rc.d/ha-openchamber-ingress/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-openchamber-lan/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode-server/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ppq-private-proxy/run \
