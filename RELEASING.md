@@ -127,6 +127,22 @@ tag collision creates a tag, and tags trigger the build/release pipeline.
 | `build-beta.yaml` | `beta-v*` | Builds the beta image from `ha_opencode_beta/` with `ADDON_CHANNEL=beta` (amd64 + aarch64, then a multi-arch manifest), publishes it as `ha_opencode_beta`, and passes `OPENCHAMBER_VERSION` from `ha_opencode_beta/build.yaml` |
 | `release-beta.yaml` | `beta-v*` | Checks the tag is reachable from `origin/dev`, checks out `main` for the storefront, syncs tagged `ha_opencode_beta/` onto `main`, writes `version:`/`image:`, asserts the beta `slug:`, and creates a prerelease |
 | `check-hab-update.yaml` | weekly | Reports the `HAB_VERSION` pin in both Dockerfiles against the latest hab release |
+| `check-opencode-update.yaml` | weekly | Reports the certified `OPENCODE_VERSION` in both channels against the latest release on npm. Read-only — it never bumps a pin |
+| `pr-checks.yaml` | pull request, push to main | Runs the add-on contract tests, the MCP server and YAML LSP suites, and syntax checks every shipped script |
+
+The image itself is not built on a pull request. It is built by the release
+workflows and then verified on a real Home Assistant instance with
+`opencode-smoke-test`, which is what
+[`OPENCODE_UPGRADE_CHECKLIST.md`](OPENCODE_UPGRADE_CHECKLIST.md) walks through.
+
+### Changing the OpenCode runtime
+
+`OPENCODE_VERSION` is a certified pin, not a dependency. Bumping it means
+working through [`OPENCODE_UPGRADE_CHECKLIST.md`](OPENCODE_UPGRADE_CHECKLIST.md)
+against a beta build before anything reaches stable. Both the Dockerfile ARG and
+`build.yaml` must carry the same exact version — CI reads `build.yaml`, the
+image build asserts the resolved install matches, and
+`test/runtime-contract.test.js` asserts the two agree.
 
 Guards that will stop you:
 
