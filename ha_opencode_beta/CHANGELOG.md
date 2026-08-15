@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.5.0b5
+
+- **OpenChamber 1.18.3** — updates the web UI through the latest upstream release, including the security-related archive extraction update from 1.18.2, lower startup cost, and session/MCP fixes.
+
+## 2.5.0b4
+
+- **Local-model MCP diagnostics ([issue #99](https://github.com/magnusoverli/opencode/issues/99))** — `ha-mcp tools` now lists the server's objective tool surface, and the Ollama guidance explains the 64K context needed to avoid silently truncating tool definitions.
+
+## 2.5.0b3
+
+- **OpenChamber voice model downloads work ([issue #100](https://github.com/magnusoverli/opencode/issues/100))** — the image now includes bzip2 support so local dictation and TTS model archives can be extracted instead of failing with `tar exited with code 2`.
+
 ## 2.5.0b2
 
 - **OpenChamber ingress survives abandoned browser streams ([issue #98](https://github.com/magnusoverli/opencode/issues/98))** — disconnecting during an HTTP or WebSocket response now tears down that request instead of crashing the ingress proxy and restarting the add-on.

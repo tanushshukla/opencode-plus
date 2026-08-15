@@ -34,7 +34,7 @@ ARG TTYD_VERSION=1.7.7
 # carries the same value and is what CI reads; the two are asserted equal by
 # test/runtime-contract.test.js so a half-done bump cannot ship.
 ARG OPENCODE_VERSION=1.18.16
-ARG OPENCHAMBER_VERSION=1.18.1
+ARG OPENCHAMBER_VERSION=1.18.3
 ARG PPQ_PROXY_VERSION=0.1.0
 ARG TSX_VERSION=4.20.6
 ARG YQ_VERSION=v4.53.3
@@ -53,12 +53,14 @@ ENV ADDON_CHANNEL=${ADDON_CHANNEL}
 # - git: Required by OpenCode for version control operations
 # - jq: JSON processing for helper scripts
 # - curl/ca-certificates: For downloading ttyd
+# - bzip2: Required by system tar to extract OpenChamber voice models
 # - procps: Provides pgrep for health check
 # - tmux: Session persistence to prevent multiple OpenCode instances
 # - chromium: Headless browser for screenshot_url MCP tool (visual verification)
 # - g++/make: native fallback builds for OpenChamber dependencies on all arches
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        bzip2 \
         ca-certificates \
         chromium \
         curl \
