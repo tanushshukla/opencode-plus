@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.5.3b4
+
+- Updated OpenChamber to 1.21.0 and verified its Home Assistant Ingress patch against the published bundle, including its dynamically served runtime shim.
+
+## 2.5.3b2
+
+- Updated the certified OpenCode runtime to 1.18.25, improving Azure CLI/Entra ID, Bedrock, Cloudflare AI Gateway, and GitHub OIDC reliability.
+
+## 2.5.3b1
+
+- Removed OpenChamber's unsupported OpenCode runtime update notification; runtime upgrades continue through tested add-on releases.
+
 ## 2.5.3b0
 
 - Updated the certified OpenCode runtime to 1.18.21, restoring responses after providers report an unknown finish reason.
