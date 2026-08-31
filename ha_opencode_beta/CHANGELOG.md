@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+- Made the official Home Assistant Supervisor devcontainer the default workflow and added repeatable app, s6, smoke-test, Home Assistant Core Ingress, and automatic sidecar crash-recovery acceptance.
+- Standardized the container runtime on Node 24.15.0 while retaining Home Assistant's Supervisor-compatible Debian base.
+- Moved staged V2 process-boundary checks into a bounded native amd64/arm64 CI fixture and removed dormant preview-client credential paths.
+
+## 3.0.0b2
+
+- Kept the root MCP proxy bound during sidecar startup while returning a clean 503 until backend readiness, and made startup logs and the terminal banner distinguish the active V1 TUI from staged V2.
+- Hardened staged V2 credential delivery against PID reuse and stale readiness after abrupt sidecar exits.
+- Clarified why the TUI still uses V1 and set gate-based targets for b3 to make V2 the default terminal runtime and b4 to remove V1 code from the beta image.
+
+## 3.0.0b1
+
+- Fixed the read-only session prompt normalization so the in-add-on smoke test no longer reports a false failure.
+- Connected staged V2 to a separately supervised, authenticated Home Assistant MCP sidecar with boot-time process-inspection hardening and no caller secret in config, environment, logs, or shell subprocesses.
+- Hardened staged V2 with a peer-validated credential broker, a root-retained sidecar listener, cancellable Home Assistant operations, redacted tool logging, and allowlisted non-dumpable process environments.
+
+## 3.0.0b0
+
+- Began the OpenCode V2 beta transition with an exact matched CLI/plugin build, isolated `/data/v2` state roots, and preserved V1 rollback data; stable remains on OpenCode V1 while parity work continues.
+- Added fail-closed copy-on-write migration of beta V1 sessions and provider authentication into atomically activated V2 state generations.
+- Fixed V1-to-V2 validation to follow the pinned message, attachment, tool, compaction, and credential projections exactly.
+- Hardened V2 readiness and migration activation against probe state writes, incomplete session projection checks, ambiguous provider IDs, and unbounded image-fixture shutdown.
+- Added a native ordered V2 safety policy and an authenticated, unprivileged private-loopback V2 service while keeping terminal, LAN, OpenChamber, and MCP traffic on the V1 rollback runtime until the remaining isolation gates pass.
+
 ## 2.5.3b4
 
 - Updated OpenChamber to 1.21.0 and verified its Home Assistant Ingress patch against the published bundle, including its dynamically served runtime shim.

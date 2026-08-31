@@ -3,8 +3,8 @@
 // build.yaml, and every script that builds a PATH — so it is asserted here
 // rather than trusted to review.
 //
-// Scoped to the add-on folder this test file ships in, so the copy promoted to
-// stable checks stable and the beta copy checks beta.
+// Scoped to the beta add-on, whose V2 runtime contract intentionally differs
+// from the V1 stable add-on.
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -43,9 +43,18 @@ function shellSources() {
 describe(`${CHANNEL} runtime pin`, () => {
   const dockerfile = read(ADDON_DIR, "Dockerfile");
   const buildYaml = read(ADDON_DIR, "build.yaml");
+  const v2BoundaryFixture = read(ADDON_DIR, "test", "v2-boundary-fixture.sh");
+  const devcontainerAcceptance = read(ADDON_DIR, "..", "scripts", "devcontainer-acceptance.sh");
 
   const dockerfilePin = /^ARG OPENCODE_VERSION=(.+)$/m.exec(dockerfile)?.[1]?.trim();
   const buildYamlPin = /^\s*OPENCODE_VERSION:\s*"([^"]*)"/m.exec(buildYaml)?.[1];
+  const dockerfileNodePin = /^ARG NODE_VERSION=(.+)$/m.exec(dockerfile)?.[1]?.trim();
+  const buildYamlNodePin = /^\s*NODE_VERSION:\s*"([^"]*)"/m.exec(buildYaml)?.[1];
+  const dockerfileV2Pin = /^ARG OPENCODE_V2_VERSION=(.+)$/m.exec(dockerfile)?.[1]?.trim();
+  const buildYamlV2Pin = /^\s*OPENCODE_V2_VERSION:\s*"([^"]*)"/m.exec(buildYaml)?.[1];
+  const v2Package = JSON.parse(
+    read(ROOTFS, "opt", "opencode-v2-homeassistant", "package.json"),
+  );
   const dockerfileOpenchamberPin = /^ARG OPENCHAMBER_VERSION=(.+)$/m.exec(dockerfile)?.[1]?.trim();
   const buildYamlOpenchamberPin = /^\s*OPENCHAMBER_VERSION:\s*"([^"]*)"/m.exec(buildYaml)?.[1];
 
@@ -63,6 +72,20 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.equal(buildYamlPin, dockerfilePin);
   });
 
+  it("copies one exact supported Node runtime into the Home Assistant base", () => {
+    assert.match(dockerfileNodePin, /^24\.\d+\.\d+$/);
+    assert.equal(buildYamlNodePin, dockerfileNodePin);
+    assert.match(dockerfile, /FROM node:\$\{NODE_VERSION\}-trixie-slim AS node-runtime/);
+    assert.match(dockerfile, /test "\$\(node --version\)" = "v\$\{NODE_VERSION\}"/);
+    assert.doesNotMatch(dockerfile, /^[ \t]+nodejs \\/m);
+  });
+
+  it("fails closed on architecture selection and executes both target runtimes", () => {
+    assert.match(dockerfile, /Unsupported BUILD_ARCH: \$\{BUILD_ARCH:-unset\}/);
+    assert.match(dockerfile, /test "\$\(opencode --version\)" = "\$\{OPENCODE_VERSION\}"/);
+    assert.match(dockerfile, /opencode2 --version/);
+  });
+
   it("pins the same exact OpenChamber version in the Dockerfile and build.yaml", () => {
     assert.ok(dockerfileOpenchamberPin, "Dockerfile has no ARG OPENCHAMBER_VERSION");
     assert.ok(buildYamlOpenchamberPin, "build.yaml has no OPENCHAMBER_VERSION");
@@ -70,10 +93,29 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.equal(buildYamlOpenchamberPin, dockerfileOpenchamberPin);
   });
 
-  it("stays on the certified V1 line", () => {
-    // V2 adoption is governed by OPENCODE_V2_FUTURE.md and its release gates,
-    // not by editing a pin.
+  it("retains the certified V1 rollback runtime during migration", () => {
     assert.match(dockerfilePin, /^1\./);
+  });
+
+  it("pins one matching exact V2 CLI and plugin beta", () => {
+    assert.match(dockerfileV2Pin, /^0\.0\.0-beta-\d+$/);
+    assert.equal(buildYamlV2Pin, dockerfileV2Pin);
+    assert.equal(v2Package.dependencies["@opencode-ai/cli"], dockerfileV2Pin);
+    assert.equal(v2Package.dependencies["@opencode-ai/plugin"], dockerfileV2Pin);
+  });
+
+  it("installs and verifies the V2 runtime from its committed lock", () => {
+    assert.match(dockerfile, /opencode-v2-homeassistant && npm ci --omit=dev/);
+    assert.match(dockerfile, /@opencode-ai\/cli\/package\.json'\)\.version/);
+    assert.match(dockerfile, /@opencode-ai\/plugin\/package\.json'\)\.version/);
+    assert.match(dockerfile, /opencode2 --version/);
+    assert.match(dockerfile, /\/usr\/local\/share\/opencode-v2-certified-version/);
+    assert.match(dockerfile, /cli-linux-x64-baseline\/bin\/opencode2/);
+    assert.match(dockerfile, /cli-linux-x64\/bin\/opencode2/);
+    assert.match(dockerfile, /cli-linux-arm64\/bin\/opencode2/);
+    for (const name of ["V2_INSTALL_PID", "MCP_INSTALL_PID", "LSP_INSTALL_PID"]) {
+      assert.match(dockerfile, new RegExp(`wait "\\$\\{${name}\\}"`));
+    }
   });
 
   it("fails the image build when the resolved runtime is not the pin", () => {
@@ -86,6 +128,83 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.match(
       read(ROOTFS, "usr", "local", "lib", "opencode", "runtime.sh"),
       /opencode_certified_version\(\)/,
+    );
+    assert.match(
+      read(ROOTFS, "usr", "local", "lib", "opencode", "runtime.sh"),
+      /opencode_v2_certified_version\(\)/,
+    );
+  });
+
+  it("distinguishes the active V1 TUI from the staged V2 runtime", () => {
+    const session = read(ROOTFS, "usr", "local", "bin", "opencode-session.sh");
+
+    assert.match(session, /Current TUI: OpenCode V1 \$\{OPENCODE_VERSION\}/);
+    assert.match(session, /cat \/usr\/local\/share\/opencode-v2-certified-version/);
+    assert.match(session, /OpenCode V2: \$\{OPENCODE_V2_VERSION\} \(\$\{OPENCODE_V2_STATUS\}; this TUI is not attached yet\)/);
+    assert.match(session, /\[ -f \/run\/opencode-v2\/ready \]/);
+  });
+
+  it("exercises the staged V2 Linux privilege boundary during the image build", () => {
+    assert.match(dockerfile, /opencode-v2-launch/);
+    assert.match(dockerfile, /secure-launcher\.c/);
+    assert.match(v2BoundaryFixture, /NoNewPrivs:/);
+    assert.match(v2BoundaryFixture, /CapBnd:/);
+    assert.match(v2BoundaryFixture, /managed-config\.js --plugin-enabled true/);
+    assert.match(
+      read(ROOTFS, "opt", "opencode-v2-homeassistant", "secure-launcher.c"),
+      /"\/usr\/local\/bin\/opencode2", "serve"/,
+    );
+    assert.match(dockerfile, /cc -shared -fPIC/);
+    assert.match(dockerfile, /opencode-v2-non-dumpable\.so/);
+    assert.match(dockerfile, /source=test\/v2-boundary-fixture\.sh/);
+    assert.match(dockerfile, /FROM runtime AS boundary-test/);
+    assert.match(dockerfile, /FROM runtime AS final/);
+    assert.match(dockerfile, /timeout --signal=TERM --kill-after=10s 240s/);
+    assert.doesNotMatch(dockerfile, /Skipping architecture-neutral V2 boundary fixture/);
+  });
+
+  it("declares a complete s6 service graph", () => {
+    const graph = path.join(ROOTFS, "etc", "s6-overlay", "s6-rc.d");
+    const services = fs
+      .readdirSync(graph, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== "user")
+      .map((entry) => entry.name);
+
+    for (const service of services) {
+      assert.ok(fs.existsSync(path.join(graph, service, "type")), `${service} has no type`);
+      const dependencies = path.join(graph, service, "dependencies.d");
+      if (!fs.existsSync(dependencies)) continue;
+      for (const dependency of fs.readdirSync(dependencies)) {
+        assert.ok(
+          fs.existsSync(path.join(graph, dependency, "type")),
+          `${service} depends on missing service ${dependency}`,
+        );
+      }
+    }
+
+    for (const service of fs.readdirSync(path.join(graph, "user", "contents.d"))) {
+      assert.ok(fs.existsSync(path.join(graph, service, "type")), `user bundle includes missing service ${service}`);
+    }
+  });
+
+  it("reserves supervised lifecycle and Ingress checks for the devcontainer", () => {
+    assert.doesNotMatch(v2BoundaryFixture, /kill -KILL "\$\{SIDECAR_PID\}"/);
+    assert.match(devcontainerAcceptance, /s6-svc -k \/run\/service\/ha-opencode-v2-mcp-sidecar/);
+    assert.doesNotMatch(devcontainerAcceptance, /s6-svc -d \/run\/service\/ha-opencode-v2-mcp-sidecar/);
+    assert.match(devcontainerAcceptance, /new_sidecar_pid.*old_sidecar_pid/);
+    assert.match(devcontainerAcceptance, /http:\/\/127\.0\.0\.1:8123\/api\/hassio_ingress\/\$\{INGRESS_TOKEN\}\//);
+  });
+
+  it("bounds every process in the in-image migration fixture", () => {
+    assert.match(dockerfile, /curl -fsS --connect-timeout 1 --max-time 2/);
+    assert.match(dockerfile, /kill -KILL "\$\{V1_SERVER_PID\}"/);
+    assert.match(
+      dockerfile,
+      /timeout --signal=TERM --kill-after=10s 180s python3 \/usr\/local\/bin\/opencode-v2-migrate\.py/,
+    );
+    assert.match(
+      dockerfile,
+      /timeout --signal=TERM --kill-after=5s 30s opencode db/,
     );
   });
 
@@ -156,6 +275,10 @@ describe(`${CHANNEL} bundled runtime precedence`, () => {
         `${relative} does not disable OpenCode auto-update`,
       );
     }
+    assert.match(
+      read(ROOTFS, "opt", "opencode-v2-homeassistant", "secure-launcher.c"),
+      /OPENCODE_DISABLE_AUTOUPDATE.*true/,
+    );
   });
 
   it("tells OpenChamber the certified runtime cannot be upgraded in place", () => {

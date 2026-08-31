@@ -295,6 +295,20 @@ that should reach stable users right away.
 Both add-ons can be installed side by side — they keep separate decision notes
 and separate storage. Full details in [RELEASING.md](RELEASING.md).
 
+### Home Assistant development
+
+The devcontainer is the default local development environment. It runs the
+add-ons under Home Assistant's official Supervisor development environment. Run
+the **Start Home Assistant** task first, then use the install, rebuild, start,
+and log tasks for either `ha_opencode` or `ha_opencode_beta`. On a first run, use
+**Install App** followed by **Start App**; use **Rebuild and Start App** while
+iterating, and run **Run App Acceptance** after runtime or lifecycle changes. The
+install task first registers the app, then builds the working tree over its local
+image tag; rebuilds stop the app before replacing that tag. Acceptance traverses
+Home Assistant Core's real Ingress route and, for beta, verifies automatic s6
+recovery after a sidecar crash. Native amd64 and arm64 boundary checks run in
+GitHub Actions; a local emulated arm64 build is not a release gate.
+
 ---
 
 ## 👏 Authors & Contributors
