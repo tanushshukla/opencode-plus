@@ -12,7 +12,6 @@ permissions:
   # therefore be attributable to the release token so Auto-tag Stable creates
   # the tag that starts the image build.
   contents: read
-  issues: write
 
 concurrency:
   group: upstream-sync
@@ -34,6 +33,11 @@ jobs:
         ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber/run
         README.md
         repository.yaml
+      # Fork release policy. Upstream uses a different branch/channel model,
+      # so these must be reviewed and updated deliberately rather than merged.
+      FORK_FILES: |
+        RELEASING.md
+        scripts/promote-beta-to-stable.sh
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -89,22 +93,28 @@ jobs:
             if grep -qxF "$file" <<< "$MANAGED_FILES"; then
               git checkout --theirs -- "$file"
               git add -- "$file"
-            elif [[ "$file" == .github/workflows/* ]]; then
-              # Workflow files contain fork-specific registry and release
-              # behavior. Keep this fork's version during conflict resolution.
+            elif [[ "$file" == .github/workflows/* ]] || grep -qxF "$file" <<< "$FORK_FILES"; then
+              # These paths contain fork-specific registry, channel, and
+              # release behavior. Keep this fork's version during conflicts.
               if git cat-file -e "HEAD:$file" 2>/dev/null; then
                 git checkout HEAD -- "$file"
               else
                 git rm -f --quiet -- "$file"
               fi
             else
-              unmanaged="$unmanaged $file"
+              unmanaged+="${unmanaged:+$'\n'}${file}"
             fi
           done <<< "$conflicted"
 
           if [ -n "$unmanaged" ]; then
-            echo "Unmanaged merge conflicts:$unmanaged"
+            echo "Unmanaged merge conflicts:"
+            echo "$unmanaged"
             git merge --abort
+            {
+              echo "conflicts<<EOF"
+              echo "$unmanaged"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             echo "result=manual" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -112,18 +122,21 @@ jobs:
           echo "result=clean" >> "$GITHUB_OUTPUT"
         continue-on-error: true
 
-      - name: Preserve fork workflow files
+      - name: Preserve fork policy files
         if: steps.check.outputs.new == 'true' && steps.merge.outputs.result == 'clean'
         env:
           BASE: ${{ steps.merge.outputs.base }}
         run: |
-          changed="$(git diff --name-only --cached "$BASE" -- .github/workflows)"
+          changed="$(git diff --name-only --cached "$BASE" -- \
+            .github/workflows \
+            RELEASING.md \
+            scripts/promote-beta-to-stable.sh)"
           if [ -z "$changed" ]; then
-            echo "Merge brings no workflow changes."
+            echo "Merge brings no fork policy changes."
             exit 0
           fi
 
-          echo "Preserving fork workflow files instead of mirroring upstream:"
+          echo "Preserving fork policy files instead of mirroring upstream:"
           echo "$changed"
           while IFS= read -r file; do
             [ -z "$file" ] && continue
@@ -144,17 +157,22 @@ jobs:
           git commit --allow-empty -m "chore: sync upstream, re-apply plus overlay (v$version)"
           git push origin HEAD:main
 
-      - name: Open issue for manual conflict resolution
+      - name: Report manual conflict resolution required
         if: steps.check.outputs.new == 'true' && steps.merge.outputs.result == 'manual'
         env:
-          GH_TOKEN: ${{ github.token }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
         run: |
-          title="Upstream sync needs manual conflict resolution"
-          existing="$(gh issue list --state open --search "in:title \"$title\"" --json number --jq length)"
-          if [ "$existing" != "0" ]; then
-            echo "Issue already open"
-            exit 0
-          fi
-          gh issue create \
-            --title "$title" \
-            --body "Automatic merge of upstream $UPSTREAM hit conflicts outside overlay-managed files. Resolve manually with git fetch upstream main, git merge upstream/main, bash scripts/apply-plus.sh, then commit and push."
+          {
+            echo "## Upstream sync needs manual conflict resolution"
+            echo
+            echo "The following paths conflict outside the automatic policies:"
+            echo '```'
+            echo "$CONFLICTS"
+            echo '```'
+            echo
+            echo "Resolve with: fetch upstream main, merge upstream/main, run scripts/apply-plus.sh, then commit and push."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          joined="$(tr '\n' ' ' <<< "$CONFLICTS")"
+          echo "::error::Manual upstream merge conflict in: $joined"
+          exit 1
