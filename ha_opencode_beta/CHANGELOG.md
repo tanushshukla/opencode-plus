@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## 3.0.0b8
+
+- Stopped copying V1 provider credentials into new V2 state because the formats are not reliably compatible; migrated sessions remain available, V1 credentials stay untouched, and V2 now asks for a fresh `/connect` sign-in.
+
+## 3.0.0b7
+
+- Clarified the configuration page's V1/V2 choice and made OpenChamber an effective V1-only interface preference; V2 always serves the terminal without discarding the saved OpenChamber choice.
+- Documented that provider credentials are copied from V1 only during initial V2 migration and must be reconnected in V2 if the provider rejects the migrated credential.
+
+## 3.0.0b6
+
+- Fixed the V2 self-test creating temporary model sessions that logged provider authorization errors; it now validates the active read-only rules without invoking a provider.
+
+## 3.0.0b5
+
+- Fixed V2 startup on HAOS by removing the unsupported ID-mapped mount and `SYS_ADMIN` requirement; the V2 server now uses `/homeassistant` directly as root, matching the proven V1 filesystem model.
+
+## 3.0.0b4
+
+- Added a bounded, non-dumpable live V2 policy self-test for native image and Supervisor acceptance without exposing the private server password to arguments, environment variables, proxies, or redirects.
+- Made OpenCode V2 the default terminal runtime with an explicit V1 rollback option for this beta milestone.
+- Added an ID-mapped Home Assistant workspace and a native TUI launcher so V2 can edit configuration as an unprivileged user without exposing server credentials to project plugins or inherited shell environments.
+- Isolated the V2 TUI under a separate user, rejected project `.opencode` plugins in both launchers, and made V1 rollback bypass the V2 mount and services completely.
+
+## 3.0.0b3
+
+- Added a default-deny V2 read-only agent that permits ordinary file reads, path globbing, and compact diagnostic MCP tools while blocking content search, sensitive reads, mutations, and unknown actions.
 - Made the official Home Assistant Supervisor devcontainer the default workflow and added repeatable app, s6, smoke-test, Home Assistant Core Ingress, and automatic sidecar crash-recovery acceptance.
 - Standardized the container runtime on Node 24.15.0 while retaining Home Assistant's Supervisor-compatible Debian base.
 - Moved staged V2 process-boundary checks into a bounded native amd64/arm64 CI fixture and removed dormant preview-client credential paths.
@@ -10,7 +37,7 @@
 
 - Kept the root MCP proxy bound during sidecar startup while returning a clean 503 until backend readiness, and made startup logs and the terminal banner distinguish the active V1 TUI from staged V2.
 - Hardened staged V2 credential delivery against PID reuse and stale readiness after abrupt sidecar exits.
-- Clarified why the TUI still uses V1 and set gate-based targets for b3 to make V2 the default terminal runtime and b4 to remove V1 code from the beta image.
+- Clarified why the TUI still uses V1 and set gate-based targets for b4 to make V2 the default terminal runtime and b5 to remove V1 code from the beta image.
 
 ## 3.0.0b1
 

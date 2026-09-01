@@ -48,10 +48,12 @@ pass.**
 
 ## 4. Sessions
 
-- [ ] **Terminal** (`interface_mode: terminal`): banner correct, OpenCode starts,
-      a prompt gets a reply.
-- [ ] **OpenChamber** (`interface_mode: openchamber`): UI loads through Ingress,
-      assets resolve (no 404s in the browser console), a session runs.
+- [ ] **V2 terminal** (`terminal_runtime: v2`): terminal is served even when the
+      retained V1 interface preference is `openchamber`; a prompt gets a reply.
+- [ ] **V1 terminal** (`terminal_runtime: v1`, `interface_mode: terminal`): banner
+      correct, OpenCode starts, and a prompt gets a reply.
+- [ ] **V1 OpenChamber** (`terminal_runtime: v1`, `interface_mode: openchamber`):
+      UI loads through Ingress, assets resolve, and a session runs.
 - [ ] **LAN mode**: `enable_server: true` with `4096/tcp` mapped — `opencode
       attach` from another machine connects and runs a prompt.
 - [ ] **OpenChamber LAN**: `enable_openchamber_lan: true` with `4097/tcp` mapped
@@ -65,8 +67,10 @@ pass.**
 - [ ] `/connect` completes for at least one API-key provider.
 - [ ] A browser-OAuth provider (for example ChatGPT Pro/Plus) completes from
       **OpenChamber**, which is the path that has broken before.
-- [ ] An existing `auth.json` still works after the upgrade — do not only test a
-      fresh sign-in.
+- [ ] V2 starts with no credentials imported from V1 and `/connect` completes a
+      fresh V2 sign-in without changing the retained V1 `auth.json`.
+- [ ] Upgrading an existing V2 generation preserves provider sign-ins created in
+      V2; credentials copied by b0-b7 may warn but are not deleted automatically.
 
 ## 6. MCP
 

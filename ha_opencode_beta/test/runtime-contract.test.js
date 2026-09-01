@@ -42,8 +42,16 @@ function shellSources() {
 
 describe(`${CHANNEL} runtime pin`, () => {
   const dockerfile = read(ADDON_DIR, "Dockerfile");
+  const configYaml = read(ADDON_DIR, "config.yaml");
+  const appArmor = read(ADDON_DIR, "apparmor.txt");
   const buildYaml = read(ADDON_DIR, "build.yaml");
   const v2BoundaryFixture = read(ADDON_DIR, "test", "v2-boundary-fixture.sh");
+  const v2SelfTest = read(ROOTFS, "usr", "local", "bin", "opencode-v2-self-test");
+  const smokeTest = read(ROOTFS, "usr", "local", "bin", "opencode-smoke-test");
+  const v2Session = read(ROOTFS, "usr", "local", "bin", "opencode-v2-session");
+  const initService = read(ROOTFS, "etc", "s6-overlay", "s6-rc.d", "init-opencode", "run");
+  const containerInit = read(ROOTFS, "opt", "opencode-v2-homeassistant", "container-init.c");
+  const tuiLauncher = read(ROOTFS, "opt", "opencode-v2-homeassistant", "tui-launcher.c");
   const devcontainerAcceptance = read(ADDON_DIR, "..", "scripts", "devcontainer-acceptance.sh");
 
   const dockerfilePin = /^ARG OPENCODE_VERSION=(.+)$/m.exec(dockerfile)?.[1]?.trim();
@@ -135,21 +143,108 @@ describe(`${CHANNEL} runtime pin`, () => {
     );
   });
 
-  it("distinguishes the active V1 TUI from the staged V2 runtime", () => {
+  it("selects V2 for the default TUI and retains explicit V1 rollback", () => {
     const session = read(ROOTFS, "usr", "local", "bin", "opencode-session.sh");
+    const serviceRoot = path.join(ROOTFS, "etc", "s6-overlay", "s6-rc.d");
 
+    assert.match(configYaml, /terminal_runtime: "v2"/);
+    assert.match(configYaml, /terminal_runtime: list\(v2\|v1\)/);
+    assert.ok(configYaml.indexOf('terminal_runtime: "v2"') < configYaml.indexOf('interface_mode: "terminal"'));
+    assert.match(initService, /SELECTED_INTERFACE_MODE=.*interface_mode/);
+    assert.match(initService, /if \[ "\$\{TERMINAL_RUNTIME\}" = "v2" \]; then\s+INTERFACE_MODE="terminal"/);
+    assert.match(initService, /OpenChamber is V1-only; V2 will serve the terminal/);
+    assert.match(initService, /printf '%s\\n' "\$\{INTERFACE_MODE\}" > \/data\/\.interface_mode/);
+    for (const service of [
+      "ha-opencode",
+      "ha-openchamber",
+      "ha-openchamber-ingress",
+      "ha-openchamber-lan",
+    ]) {
+      assert.match(read(serviceRoot, service, "run"), /cat \/data\/\.interface_mode/);
+    }
+    for (const service of [
+      "ha-openchamber",
+      "ha-openchamber-ingress",
+      "ha-openchamber-lan",
+      "ha-opencode-server",
+    ]) {
+      assert.match(read(serviceRoot, service, "run"), /cat \/data\/\.terminal_runtime/);
+    }
+    assert.match(session, /TERMINAL_RUNTIME=.*\.terminal_runtime/);
+    assert.match(session, /exec \/usr\/local\/bin\/opencode-v2-session/);
     assert.match(session, /Current TUI: OpenCode V1 \$\{OPENCODE_VERSION\}/);
-    assert.match(session, /cat \/usr\/local\/share\/opencode-v2-certified-version/);
-    assert.match(session, /OpenCode V2: \$\{OPENCODE_V2_VERSION\} \(\$\{OPENCODE_V2_STATUS\}; this TUI is not attached yet\)/);
-    assert.match(session, /\[ -f \/run\/opencode-v2\/ready \]/);
+    assert.match(v2Session, /Current TUI: OpenCode V2 \$\{V2_VERSION\}/);
+    assert.match(v2Session, /Rollback runtime retained: OpenCode V1 \$\{V1_VERSION\}/);
+    assert.match(v2Session, /TUI runs as uid 60001; the V2 server runs as root/);
+    assert.match(v2Session, /exec \/usr\/local\/bin\/opencode-v2-tui-launch \/run\/opencode-v2/);
+  });
+
+  it("uses the direct Home Assistant workspace without elevated mount privileges", () => {
+    assert.match(configYaml, /privileged: \[\]/);
+    assert.match(configYaml, /apparmor: true/);
+    assert.doesNotMatch(appArmor, /capability sys_admin,/);
+    assert.doesNotMatch(appArmor, /^\s*capability,\s*$/m);
+    assert.doesNotMatch(appArmor, /^\s*ptrace,\s*$/m);
+    assert.match(dockerfile, /ENTRYPOINT \["\/usr\/local\/bin\/opencode-container-init"\]/);
+    assert.doesNotMatch(containerInit, /X-mount\.idmap|\/usr\/bin\/mount|CAP_SYS_ADMIN/);
+    assert.match(containerInit, /#define SOURCE_PATH "\/homeassistant"/);
+    assert.match(containerInit, /v1_rollback_requested/);
+    assert.match(containerInit, /\.terminal_runtime == \\\"v1\\\"/);
+    for (const service of [
+      "ha-opencode-v2-credential-broker",
+      "ha-opencode-v2-mcp-proxy",
+      "ha-opencode-v2-mcp-sidecar",
+      "ha-opencode-v2-server",
+    ]) {
+      assert.match(containerInit, new RegExp(`"${service}"`));
+    }
+    assert.match(containerInit, /disable_v2_services\(\)/);
+    const rollbackMigrationGate = initService.indexOf("OpenCode V2 migration is skipped during explicit V1 rollback");
+    assert.ok(rollbackMigrationGate >= 0);
+    assert.ok(rollbackMigrationGate < initService.indexOf("opencode-v2-migrate.py prepare"));
+    assert.match(containerInit, /execve\(arguments\[0\], arguments, environ\)/);
+  });
+
+  it("attaches the V2 TUI through a credential-confined native launcher", () => {
+    assert.match(dockerfile, /useradd --uid 60001 --gid opencode-v2-tui/);
+    assert.match(tuiLauncher, /#define RUNTIME_UID 60001/);
+    assert.match(tuiLauncher, /clearenv\(\)/);
+    assert.match(tuiLauncher, /OPENCODE_PASSWORD/);
+    assert.match(tuiLauncher, /PR_SET_DUMPABLE, 0/);
+    assert.match(tuiLauncher, /PR_CAPBSET_DROP/);
+    assert.match(tuiLauncher, /fstatat\(workspace, "\.opencode"/);
+    assert.match(tuiLauncher, /OPENCODE_DISABLE_PROJECT_CONFIG/);
+    assert.match(tuiLauncher, /OPENCODE_CONFIG/);
+    assert.match(tuiLauncher, /LD_PRELOAD/);
+    assert.match(tuiLauncher, /opencode-v2-non-dumpable\.so/);
+    assert.match(tuiLauncher, /"\/usr\/local\/bin\/opencode2", "--server", SERVER_URL/);
+    assert.doesNotMatch(tuiLauncher, /SUPERVISOR_TOKEN|HA_TOKEN|HA_ACCESS_TOKEN/);
+    assert.match(
+      read(ROOTFS, "opt", "opencode-v2-homeassistant", "secure-launcher.c"),
+      /project \.opencode content is not allowed in the V2 server/,
+    );
   });
 
   it("exercises the staged V2 Linux privilege boundary during the image build", () => {
     assert.match(dockerfile, /opencode-v2-launch/);
     assert.match(dockerfile, /secure-launcher\.c/);
     assert.match(v2BoundaryFixture, /NoNewPrivs:/);
-    assert.match(v2BoundaryFixture, /CapBnd:/);
-    assert.match(v2BoundaryFixture, /managed-config\.js --plugin-enabled true/);
+    assert.match(v2BoundaryFixture, /managed-config\.js --restrict-sensitive-files false --plugin-enabled true/);
+    assert.match(v2BoundaryFixture, /V2 server accepted project \.opencode content/);
+    assert.match(v2BoundaryFixture, /OPENCODE_MCP_TOOL_PROFILE=full/);
+    assert.match(v2BoundaryFixture, /opencode-v2-self-test --quiet/);
+    assert.match(v2SelfTest, /PR_SET_DUMPABLE/);
+    assert.match(v2SelfTest, /os\.O_NOFOLLOW/);
+    assert.match(v2SelfTest, /urllib\.request\.ProxyHandler\(\{\}\)/);
+    assert.match(v2SelfTest, /NoRedirectHandler/);
+    assert.match(v2SelfTest, /signal\.alarm\(SELF_TEST_DEADLINE_SECONDS\)/);
+    assert.match(v2SelfTest, /fnmatch\.fnmatchcase/);
+    assert.match(v2SelfTest, /agent\.get\("permissions"\)/);
+    assert.match(v2SelfTest, /homeassistant_remember_decision/);
+    assert.match(v2SelfTest, /mcp-enabled/);
+    assert.doesNotMatch(v2SelfTest, /\/api\/session|method="DELETE"/);
+    assert.match(smokeTest, /timeout --signal=TERM --kill-after=10s 60s/);
+    assert.doesNotMatch(devcontainerAcceptance, /curl[^\n]*-u/);
     assert.match(
       read(ROOTFS, "opt", "opencode-v2-homeassistant", "secure-launcher.c"),
       /"\/usr\/local\/bin\/opencode2", "serve"/,
@@ -193,6 +288,7 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.doesNotMatch(devcontainerAcceptance, /s6-svc -d \/run\/service\/ha-opencode-v2-mcp-sidecar/);
     assert.match(devcontainerAcceptance, /new_sidecar_pid.*old_sidecar_pid/);
     assert.match(devcontainerAcceptance, /http:\/\/127\.0\.0\.1:8123\/api\/hassio_ingress\/\$\{INGRESS_TOKEN\}\//);
+    assert.match(devcontainerAcceptance, /\/usr\/local\/bin\/opencode-smoke-test/);
   });
 
   it("bounds every process in the in-image migration fixture", () => {

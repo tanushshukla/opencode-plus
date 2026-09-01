@@ -55,7 +55,7 @@ Sources:
 
 ### Why the TUI still reports 1.18.25
 
-This is intentional through `3.0.0b2`, not a stale upgrade. The terminal service
+This is intentional through `3.0.0b3`, not a stale upgrade. The terminal service
 still runs `opencode-session.sh`, which executes `/usr/local/bin/opencode`: the
 certified V1 `1.18.25` runtime. V2 currently runs only as the independently
 supervised, authenticated server on `127.0.0.1:4100`; ttyd, LAN, and
@@ -113,6 +113,28 @@ in `opencode-session.sh` with a V2 client attached to port 4100:
    display the V2 version only after the V2 path passes the complete terminal
    smoke test.
 
+The root-owned managed policy now defines the selectable V2
+`home-assistant-read-only` agent. Its final rules default-deny every action,
+re-allow ordinary file reads and path globbing, then re-deny sensitive reads.
+Content search stays denied because V2 authorizes it by search expression rather
+than by each matched file. The complete `homeassistant_*` MCP namespace is also
+denied before only the centrally defined compact diagnostic profile is
+re-allowed. With the sidecar's full catalog active and global sensitive-read
+rules disabled, the target-native boundary fixture asks V2's own permission
+evaluator to deny generic mutations, content search, unknown/future native and
+MCP actions, known mutating MCP tools, and sensitive reads while allowing normal
+reads, path globbing, and a compact diagnostic tool. The compact-profile suite
+separately proves stale direct mutating calls are rejected before sidecar
+dispatch. This closes the managed policy and deterministic evaluator portion of
+gate 4; model-driven tool invocation and the real TUI remain part of terminal
+acceptance. A root-only `opencode-v2-self-test` now repeats those evaluator
+checks against the live private server in one non-dumpable process, leaves no
+pending approval or temporary session after success or controlled cancellation,
+and keeps the server password out of arguments, environment variables, output,
+proxies, and redirects. It also matches MCP activation to the root-owned boot
+configuration and applies an internal deadline. Native image and Supervisor
+acceptance both invoke it.
+
 ### Parity after terminal cutover
 
 OpenChamber is not the first V2 client. After the terminal preview is reliable,
@@ -128,17 +150,26 @@ These are gate-based release targets rather than calendar promises. A beta does
 not ship merely to preserve the number if its prerequisite boundary is not
 closed.
 
-- `3.0.0b2` is the final planned beta with V1 as the default user-facing
-  runtime. It should complete the startup cleanup, dual-runtime banner, exact s6
-  restart checks, and as much of the terminal-preview implementation as can be
-  proven without weakening a boundary.
-- `3.0.0b3` targets V2 as the default terminal runtime. No V1 terminal, LAN, or
-  OpenChamber service should run unless the operator explicitly selects the
-  temporary V1 rollback mode. If OpenChamber still lacks V2 support, b3 should
-  reject that interface mode clearly rather than silently start V1 for it.
-- `3.0.0b4` targets removal of the V1 `opencode-ai` package, V1 session/server
+- `3.0.0b2` completed startup cleanup, the dual-runtime banner, and exact s6
+  restart checks while retaining V1 as the default user-facing runtime.
+- `3.0.0b3` is the final planned V1-default beta. It adds the default-deny native
+  read-only policy and its target-native evaluator coverage so operators can test
+  the staged V2 service before terminal activation.
+- `3.0.0b4` makes V2 the default terminal runtime. The V1 terminal, LAN, and
+  OpenChamber paths run only when the operator explicitly selects temporary V1
+  rollback; the V2 mount and services remain inactive in that mode.
+- `3.0.0b5` removes the HAOS-incompatible ID-mapped mount and runs the V2 server
+  directly against `/homeassistant` as root so real-system testing can proceed.
+- `3.0.0b6` removes provider calls from the V2 self-test so operators can run it
+  without creating temporary model sessions or misleading authorization errors.
+- `3.0.0b7` makes the configuration matrix explicit: V2 always serves the
+  terminal, while V1 honors the saved terminal or OpenChamber preference.
+- `3.0.0b8` stops importing V1 provider credentials into new V2 generations;
+  sessions still migrate, existing V2 generations remain untouched, and users
+  authenticate providers directly in V2 with `/connect`.
+- `3.0.0b9` targets removal of the V1 `opencode-ai` package, V1 session/server
   launchers, V1 s6 service paths, and V1 config generation from the beta image.
-  This happens only after b3 proves provider authentication, migrated sessions,
+  This happens only after b8 proves fresh provider authentication, migrated sessions,
   `/homeassistant` work, read-only policy, shutdown, and rollback on real Home
   Assistant.
 - Stable `3.0.0` is V2-only. It must not contain a dormant V1 executable or a
@@ -171,14 +202,15 @@ start successfully in the Home Assistant Debian Trixie images; the x64 baseline
 package must still be tested on a host without AVX2.
 
 V2 is daemon-first. Its shared daemon, client-owned `--standalone` server, and
-explicit `serve` process have different ownership models. The beta now stages
-one explicit authenticated `serve` process under s6 on private loopback as UID
-60000. User-facing activation remains blocked on safe `/homeassistant` access,
-enforceable plugin discovery, secure TUI attachment, and complete terminal
-lifecycle validation.
+explicit `serve` process have different ownership models. Beta b5 runs one
+authenticated root `serve` process under s6 on private loopback and attaches a
+separately isolated UID-60001 TUI. The server accesses `/homeassistant` directly
+for HAOS compatibility; both processes start outside that tree in a dedicated
+root-owned project directory.
 The current V1 LAN service cannot be renamed mechanically:
 
-- V2 `serve` does not accept V1's `--cors` option.
+- V2 `serve` accepts repeatable `--cors` origins, but its authentication and
+  exposure model still differs from the V1 LAN service.
 - V2 has no top-level `attach` command; clients use `opencode2 --server URL`.
 - V2 service discovery and authentication require a new LAN threat model.
 
@@ -475,8 +507,9 @@ visual and irrelevant. The initial target is:
 - Configuration mode preserves its current safe configuration catalog and
   rejects control/administration tools.
 - Full mode preserves the current feature-gated catalog.
-- Native V2 permission denies block sensitive reads, edits, shell, subagents,
-  and denied MCP actions before dispatch where applicable.
+- Native V2 permission denies block sensitive reads, content search, edits,
+  shell, subagents, unknown actions, and denied MCP actions before dispatch
+  where applicable.
 - The server-side MCP profile still rejects a stale direct call.
 - Static Home Assistant safety rules and dynamic bounded context reach every
   applicable model request.
@@ -495,8 +528,8 @@ visual and irrelevant. The initial target is:
   model can answer, invoke one allowed Home Assistant MCP tool, consume its
   result, and complete the response.
 - Copy-on-write V2 migration preserves the existing beta V1 data byte-for-byte,
-  validates sessions and provider credentials before activation, and leaves the
-  V1 roots usable by the previous beta image.
+  validates sessions and the absence of imported provider credentials before
+  activation, and leaves the V1 roots usable by the previous beta image.
 - OpenChamber is not started against V2.
 
 ## Investigation and Delivery Phases
@@ -524,14 +557,15 @@ visual and irrelevant. The initial target is:
 - Both architecture builds and the live `3.0.0b1` boundary check passed; the
   staged runtime remains private while the terminal continues on V1.
 
-### Phase 2: terminal-first V2 activation and beta gaps
+### Phase 2: terminal-first V2 activation and beta gaps (activated in b4)
 
-- Complete the next-beta stabilization and first V2 terminal preview gates
-  above before changing the user-facing runtime.
+- Soak the activated V2 terminal, direct Home Assistant workspace, separate TUI identity,
+  managed plugin boundary, and explicit V1 rollback before removing V1.
 - Track working LSP and formatter execution upstream.
 - Revalidate PPQ/custom-provider configuration in native V2 form.
 - Test LAN authentication and replace V1 attach/CORS assumptions.
-- Test V1 session/auth migration on copied data and document rollback.
+- Test V1 session migration plus fresh V2 provider authentication and document
+  rollback.
 - Add native MCP and screenshot/access-token paths to the privileged sidecar.
 - Integrate an OpenChamber release that explicitly supports V2, then rerun all
   Ingress, OAuth, streaming, service-worker, update-policy, and asset tests.
@@ -545,8 +579,8 @@ Stable 3.0.0 requires all of the following:
 3. HA YAML LSP and formatting work without regression.
 4. Terminal, LAN, read-only, MCP profiles, native MCP, PPQ, and OpenChamber all
    pass automated and real Home Assistant smoke tests.
-5. V1 session/config/auth migration and rollback are demonstrated on copied
-   persistent data.
+5. V1 session/config migration, fresh V2 provider authentication, and rollback
+   are demonstrated on copied persistent data.
 6. Plan/read-only modes enforce non-mutation under native V2 permissions.
 7. Both architectures complete a soak in the V2 beta channel.
 
