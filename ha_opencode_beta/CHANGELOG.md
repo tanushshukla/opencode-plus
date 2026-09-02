@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- Consolidated the V2 readiness and migration roadmaps, documented selectable V1 as retained for rollback, LAN, and OpenChamber, and clarified the root V2 shell credential boundary.
+
+## 3.0.0b10
+
+- Expanded `get_history` with fixed-window paging across all recorded state changes, compact state/timestamp pages, reusable continuation arguments, and complete-window numeric calculations instead of limiting analysis to the newest 200 events.
+
+## 3.0.0b9
+
+- Restored the optional `homeassistant_native` MCP in V2 through the credential-isolated sidecar, so enabling the bridge now shows both Home Assistant MCP servers as connected without exposing Supervisor credentials to the V2 server or shell.
+- Prevented a harmless one-time V2 server restart by waiting for the credential broker socket during concurrent s6 startup.
+
 ## 3.0.0b8
 
 - Stopped copying V1 provider credentials into new V2 state because the formats are not reliably compatible; migrated sessions remain available, V1 credentials stay untouched, and V2 now asks for a fresh `/connect` sign-in.
