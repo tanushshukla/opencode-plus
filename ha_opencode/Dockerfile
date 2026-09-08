@@ -39,7 +39,7 @@ ARG TTYD_VERSION=1.7.7
 # can run, and it changes only through a tested add-on release. build.yaml
 # carries the same value and is what CI reads; the two are asserted equal by
 # test/runtime-contract.test.js so a half-done bump cannot ship.
-ARG OPENCODE_VERSION=1.18.25
+ARG OPENCODE_VERSION=1.18.29
 ARG OPENCHAMBER_VERSION=1.21.0
 ARG PPQ_PROXY_VERSION=0.1.0
 ARG TSX_VERSION=4.20.6
@@ -198,6 +198,7 @@ RUN chmod +x /usr/local/bin/* \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-openchamber-ingress/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-openchamber-lan/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode-server/run \
+    && chmod +x /etc/s6-overlay/s6-rc.d/ha-facing-mcp/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ppq-private-proxy/run \
     && chmod +x /etc/profile.d/hab-esphome.sh \
     && chmod +x /etc/profile.d/zigporter-z2m.sh \

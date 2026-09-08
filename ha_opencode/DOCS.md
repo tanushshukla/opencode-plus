@@ -683,6 +683,87 @@ That admin requirement is not a wall for this add-on. The Supervisor calls Home 
 
 The regular `homeassistant` MCP server remains available and is the supported tool surface either way. The two are intentionally separate: `homeassistant_native` carries Home Assistant's curated native LLM tools, while `homeassistant` covers configuration editing, validation, admin and development workflows, screenshots, and updates.
 
+### Expose Read-Only MCP to Home Assistant
+
+This optional server lets **Home Assistant use tools from this app**. It is the
+opposite direction from the native bridge above, and does not turn OpenCode into
+a conversation agent. It works independently of OpenCode's MCP tool profile,
+terminal/OpenChamber selection, and local MCP enablement.
+
+Automatic app discovery requires [Core PR #180378](https://github.com/home-assistant/core/pull/180378),
+merged into the **2026.10 development line** and absent from 2026.9.1. The expected
+first stable release is 2026.10.0; verify the shipped Core release before relying
+on discovery. Existing OpenCode functionality is unchanged on older versions.
+
+#### Setup
+
+1. Enable **Expose read-only MCP to Home Assistant** (`ha_mcp_server_enabled`) and restart the app. The option is off by default. No Network port mapping is needed.
+2. On a supporting Core version, confirm the discovered **Model Context Protocol** integration in **Settings > Devices & Services**. This is the MCP client integration, not **Model Context Protocol Server**.
+3. Select the resulting LLM API in your compatible conversation agent. Discovery does not automatically enable tools in every agent.
+
+**HTTP and HTTPS Home Assistant browser access both work.** New and previously
+unprovisioned installations use trusted-host access: no OAuth client registration,
+credential copying, callback configuration, or visit to a setup page is required.
+Publication begins automatically after service readiness, even if the installed
+Core does not yet support discovery. A supporting Core version is still needed
+to show the discovery confirmation.
+
+No MCP badge or link is added to the app UI. The optional administrator status
+page remains at `/ha-mcp/` beneath the app's authenticated Ingress base URL; it is
+not part of onboarding. On older MCP-capable Core versions, the endpoint shown
+there can be used for manual client setup, but that does not test discovery.
+
+Stable and beta have independent state and discovered APIs. Discovery-owned
+API IDs are `mcp-<full-app-slug>`, remaining stable across reinstallations with the
+same slug. An existing manually configured entry with the same URL is not
+automatically converted to discovery ownership.
+
+#### Access and Lifecycle
+
+The fixed catalogue contains `get_states`, `search_entities`, `get_entity_details`,
+`get_home_context`, `get_areas`, `get_devices`, `get_calendars`, and
+`get_calendar_events`. Listing and execution both enforce this allowlist. Calendar
+ranges, request/result sizes, session counts, and execution time are bounded.
+There is no shell, file editing, service control, update, log, template, screenshot,
+or native-MCP forwarding tool. These reads are **installation-wide**, not limited
+by Assist's exposed-entity settings, and can reveal occupancy or other private data.
+
+The MCP listener uses **unencrypted internal HTTP** on port 8766. Trusted-host
+mode accepts only the actual socket peer matching the host gateway reported by
+Supervisor. Ordinary sibling containers and forged forwarding headers are
+rejected, but **other host-networked apps and host processes can also read the
+exposed data without credentials**. This is a network trust boundary, not unique
+Core identity or per-user authorization. Enable it only on a trusted installation.
+Do not publish or reverse-proxy this port. Port 8767 is loopback-only admin IPC.
+The backend retains its privileged Supervisor token; the allowlist is not an OS
+sandbox. HTTP browser traffic is unencrypted too; HTTPS remains preferable where
+available, but is not required.
+
+Disable the option and restart to close the listener and withdraw discovery;
+failed Supervisor withdrawal is retried. Normal restarts preserve registration
+and the chosen access mode. Removing only the HA integration does not close the
+trusted-host listener; disable the app option to remove network access.
+Supervisor publication means only that the announcement was accepted, not that
+the user connected it. Uninstall cleanup depends on Supervisor reaching Core;
+after an outage, remove any stale integration manually if necessary.
+
+#### Existing OAuth Installations
+
+An already provisioned OAuth client is detected at startup and **remains in OAuth
+mode**, including after disabling/re-enabling the option. It is not silently
+converted to credential-free access. New/unprovisioned installations use
+trusted-host mode automatically; malformed stored state fails closed.
+
+Existing OAuth users retain client-secret authentication, 15-minute access tokens,
+rotating 30-day refresh grants, and administrator consent. The retained setup page
+at `/ha-mcp/` beneath the app's authenticated Ingress base URL allows credential
+replacement. HTTP or HTTPS Ingress is
+accepted with exact-origin CSRF checks; direct callbacks must use the exact HA
+`/auth/external/callback` URL, or HTTPS My Home Assistant. Changing the external
+origin/path requires reprovisioning and updating HA application credentials.
+Reprovisioning revokes old grants; removing an approving user does not itself
+revoke an issued grant. HTTP does not encrypt consent or OAuth codes.
+
 ### Model Tool Evaluation
 
 `ha-agent-eval` is an opt-in developer command for comparing a real model's tool selection against fixed synthetic Home Assistant scenarios. It calls an OpenAI-compatible chat-completions endpoint, supplies mocked tool results, and never contacts Home Assistant or executes a real tool.

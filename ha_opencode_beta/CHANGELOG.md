@@ -2,7 +2,29 @@
 
 ## [Unreleased]
 
+## 3.0.0b13
+
+- Updated the pinned OpenCode V2 CLI and plugin to beta-19242; full runtime and restart validation remains pending.
+- Updated authentication health checks to the new runtime's protected `/api/health` endpoint, preserving unauthenticated rejection checks.
+- Adapted the MCP and runtime-guard plugins to the new directory-based loader, including the attached TUI configuration.
+- Fixed the policy self-test to recognize the runtime's nested plugin state while still rejecting inactive or malformed records.
+- Removed the injected Home Assistant MCP status badge and its unused UI plumbing; automatic discovery and existing OAuth access are unchanged.
+- This beta does not claim to resolve missing tool outputs or the reported post-restart ChildProcess.spawn failure; verification is intentionally limited pending in-app testing.
+
+## 3.0.0b12
+
+- Simplified opt-in MCP setup to automatic trusted-host discovery over HTTP or HTTPS without manual credentials; already-provisioned OAuth clients remain authenticated.
+- New and unprovisioned installations need only enable the feature, restart, and confirm the discovered integration on a supporting Core version (expected 2026.10). The optional Home Assistant MCP status page replaces the setup link.
+- Retained the eight-tool read-only allowlist and no published host ports. Trusted-host access permits the Supervisor-reported host gateway, including other host-networked apps and host processes; ordinary sibling-container connections and forged forwarding headers are rejected.
+- Added real-browser HTTP/HTTPS, socket-peer, OAuth-preservation, and session-expiry tests, and extended acceptance to use Core's MCP client. Real Supervisor/Core discovery and lifecycle acceptance remain outstanding.
+
+## 3.0.0b11
+
+- Added opt-in read-only MCP tools for Home Assistant with Ingress administrator consent, OAuth authentication, app discovery, and disable cleanup.
+- Enable **Expose read-only MCP to Home Assistant**, restart, and use **Home Assistant MCP setup** in the app UI. Requires HTTPS Ingress; automatic discovery targets Core 2026.10, while older MCP-capable versions can use manual setup.
+- Kept the new service independent of V1/V2 and local OpenCode MCP settings, with eight enforced read-only tools, isolated sessions, and no published host ports. Reads cover the whole installation, not only Assist-exposed entities.
 - Consolidated the V2 readiness and migration roadmaps, documented selectable V1 as retained for rollback, LAN, and OpenChamber, and clarified the root V2 shell credential boundary.
+- Validation limitation: focused OAuth/browser, discovery, ingress, and service-contract tests pass; real Supervisor/Core Ingress lifecycle acceptance remains outstanding. The new MCP feature is off by default.
 
 ## 3.0.0b10
 

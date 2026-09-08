@@ -2,6 +2,8 @@
 const http = require("http");
 const net = require("net");
 const zlib = require("zlib");
+const { routeHaMcp } = require("./ha-mcp-ingress.js");
+const TERMINAL = process.env.HA_INGRESS_UI === "terminal";
 
 const LISTEN_HOST = process.env.OPENCHAMBER_INGRESS_HOST || "0.0.0.0";
 const LISTEN_PORT = Number.parseInt(process.env.OPENCHAMBER_INGRESS_PORT || "8099", 10);
@@ -584,6 +586,12 @@ function proxyRequest(req, res) {
   const ingressPath = ingressPathFromRequest(req);
   const upstreamPath = stripIngressPath(req.url || "/", ingressPath);
 
+  if (routeHaMcp(req, res, { ingressPath, upstreamPath, lan: ALLOW_ANY_REMOTE })) return;
+  if (TERMINAL) {
+    forwardRequest(req, res, { ingressPath, upstreamPath });
+    return;
+  }
+
   // Canned "you are up to date" response for OpenChamber's update check.
   // OpenChamber is pinned and Ingress-patched at image build time, and its
   // self-update (an npm reinstall of @openchamber/web) cannot persist across
@@ -706,7 +714,7 @@ function forwardRequest(req, res, { ingressPath, upstreamPath, body = null, oaut
     const isHtml = contentType.includes("text/html");
     const isJavaScript = /(?:application|text)\/javascript|\bmodule\b/.test(contentType);
     const isCss = contentType.includes("text/css");
-    if (!isHtml && !isJavaScript && !isCss) {
+    if (TERMINAL || (!isHtml && !isJavaScript && !isCss)) {
       if (clientClosed || !canWriteResponse(res)) {
         upstreamRes.destroy();
         return;
@@ -786,6 +794,10 @@ function proxyUpgrade(req, socket, head) {
 
   const ingressPath = ingressPathFromRequest(req);
   const upstreamPath = stripIngressPath(req.url || "/", ingressPath);
+  if (/^\/ha-mcp(?:[/?]|$)/.test(upstreamPath)) {
+    socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+    return;
+  }
   const headers = { ...req.headers };
   headers.host = `${UPSTREAM_HOST}:${UPSTREAM_PORT}`;
   headers["x-forwarded-host"] = req.headers["x-forwarded-host"] || req.headers.host || "";
