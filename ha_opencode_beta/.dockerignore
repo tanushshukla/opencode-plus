@@ -14,6 +14,8 @@
 # in the build context for its read-only BuildKit bind mount.
 **/test/**
 !test/v2-boundary-fixture.sh
+!test/v2-caller-secret-plugin.js
+!test/v2-caller-secret-native.py
 **/vitest.config.*
 
 # Dependencies are installed from package-lock at build time; the checked-in

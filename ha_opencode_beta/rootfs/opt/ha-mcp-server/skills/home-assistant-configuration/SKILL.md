@@ -153,15 +153,48 @@ Know the `!include` family: `!include`, `!include_dir_named`,
 Use anchors (`&name`) and aliases (`*name`) for DRY configuration, and packages
 when a feature spans several domains.
 
-## Creating an automation
+## Creating or editing an automation
 
-1. Read the whole existing `automations.yaml` — your write must contain all of it.
-2. Identify the trigger, the conditions, and the entities involved
-   (`search_entities` / `get_home_context` if you need to find them).
-3. Draft the YAML with comments explaining anything non-obvious.
-4. Show the draft — the complete file — and wait for approval.
-5. Write with `write_config_safe`.
-6. Suggest how to test it.
+Use YAML + `write_config_safe` as the default, including for UI-managed
+automations. A reload is a normal part of applying YAML, not a reason to switch
+to API editing or hand-built JSON/shell commands.
+
+1. Read `configuration.yaml` and follow its automation includes or packages to
+   find the actual source file. Do not assume everything is in `automations.yaml`.
+2. Read the whole source file. Preserve unrelated content and existing automation
+   IDs; give a new automation a unique ID. Identify the affected runtime entity
+   from its ID/current state, not by guessing an entity ID from its alias.
+3. Identify the trigger, conditions, and entities (`search_entities` /
+   `get_home_context`). Draft the minimal change in the complete file.
+4. Prevalidate with `write_config_safe(file_path=..., content=..., dry_run=true)`.
+   Fix validation failures before proceeding. A dry run does not persist or apply
+   the change.
+5. Show the draft and explain that `automation.reload` applies it without a Core
+   restart, but stops currently running automation actions. Ask for approval of
+   the write and reload together; approval of only the write is not reload consent.
+6. Write the approved content with `write_config_safe`. If writing or validation
+   fails, stop and report the failure; do not reload. If the source changed since
+   it was read, reread it and reconcile the draft before writing.
+7. Once the write succeeds and reload is approved, use the structured MCP call
+   `call_service(domain="automation", service="reload")`. Do not construct shell
+   JSON for this. If `call_service` is missing (the `configuration` profile omits
+   it), report **saved, pending reload** and explain that the user can reload
+   automations in HA's Developer Tools → YAML, or enable the `full` profile and
+   restart the add-on. Never work around a reduced profile through shell/API calls.
+8. Check the service result, then use `get_entity_details` for the affected entity
+   (or a bounded `get_states` query for domain `automation` to locate a new one).
+   Check relevant `get_error_log` entries if it is missing, unavailable, or the
+   reload failed. An existing entity alone does not prove the new YAML loaded:
+   combine the reload result with runtime evidence. Do not enable a disabled
+   automation or trigger its actions as verification without separate approval.
+9. Report **saved**, **reloaded**, and **load verified** separately, including any
+   pending/failed step. Successful loading is not proof of behaviour; suggest a
+   separate user-approved functional test.
+
+If API editing is specifically required, check `hab automation --help` and the
+subcommand's help for supported payload/file options first. Do not guess flags
+or repeatedly improvise escaping. Preserve the same approval and verification
+requirements.
 
 Triggers: state, time, time_pattern, event, webhook, mqtt, template, zone,
 device, numeric_state. Conditions: state, numeric_state, time, template, zone,

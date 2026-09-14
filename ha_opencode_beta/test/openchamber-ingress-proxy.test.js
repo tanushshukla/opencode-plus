@@ -647,6 +647,11 @@ describe("openchamber ingress proxy: disconnected clients", () => {
 
 describe("openchamber ingress proxy: release parity", () => {
   it("ships the tested proxy implementation in both channels", () => {
-    assert.equal(fs.readFileSync(PROXY_SCRIPT, "utf8"), fs.readFileSync(STABLE_PROXY_SCRIPT, "utf8"));
+    // The stable-only terminal quit route relies on V1's graceful SIGHUP path.
+    // Provider OAuth and all remaining shared proxy behavior must stay identical.
+    const stable = fs.readFileSync(STABLE_PROXY_SCRIPT, "utf8")
+      .replace('const { routeTerminalControl } = require("./terminal-control.js");\n', "")
+      .replace('  if (routeTerminalControl(req, res, { ingressPath, upstreamPath, terminal: TERMINAL, lan: ALLOW_ANY_REMOTE })) return;\n', "");
+    assert.equal(fs.readFileSync(PROXY_SCRIPT, "utf8"), stable);
   });
 });

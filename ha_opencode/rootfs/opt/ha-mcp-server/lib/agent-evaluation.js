@@ -73,12 +73,23 @@ export function scoreScenario(scenario, calls, finalText = "") {
   }
 
   for (const assertion of expected.arguments ?? []) {
-    const matchingCall = calls.find((call) =>
-      call.name === assertion.tool && call.valid && valueAtPath(call.arguments, assertion.path) === assertion.equals,
-    );
+    const matches = (call) =>
+      call.name === assertion.tool && call.valid && valueAtPath(call.arguments, assertion.path) === assertion.equals;
+    const toolCalls = calls.filter((call) => call.name === assertion.tool);
+    const matchingCall = assertion.all
+      ? toolCalls.length > 0 && toolCalls.every(matches)
+      : calls.some(matches);
     checks.push({
       name: `argument:${assertion.tool}.${assertion.path}`,
       passed: Boolean(matchingCall),
+    });
+  }
+
+  if (expected.tool_sequence) {
+    checks.push({
+      name: "tool_sequence",
+      passed: names.length === expected.tool_sequence.length &&
+        names.every((name, index) => name === expected.tool_sequence[index]),
     });
   }
 

@@ -215,7 +215,7 @@ The `hab_run` MCP tool provides access to the full Home Assistant admin CLI. It 
 ### When to Use hab_run vs Other MCP Tools
 
 - **Use existing MCP tools** for: safe config writing, anomaly detection, entity diagnostics, firmware updates, history queries
-- **Use hab_run** for: dashboard management, area/floor/zone/person/category CRUD, helper creation, automation/script/scene CRUD via API, todo and notification management, integration control, repair issues, event firing, template rendering, backups, blueprints, search
+- **Use hab_run** for: dashboard management, area/floor/zone/person/category CRUD, helper creation, todo and notification management, integration control, repair issues, event firing, template rendering, backups, blueprints, search. Automation/script/scene API CRUD is available when specifically needed; configuration edits default to YAML + `write_config_safe`. Check command help and supported payload/file options before using API CRUD; do not improvise JSON quoting or switch paths merely because YAML needs a reload.
 
 ### Common hab_run Commands
 
@@ -379,16 +379,27 @@ The tool returns structured JSON when `--json` is used, or diff/confirmation tex
 3. get_error_log(lines=50)
 ```
 
-### Create an automation
+### Create or edit an automation
+
+Load `home-assistant-configuration` for the canonical procedure, including custom
+includes/packages and verification. Use structured MCP arguments, not shell JSON.
 ```
-1. search_entities() to find relevant entities
-2. get_services() to understand available services
-3. read_file("automations.yaml")                              -> Read ALL existing automations
-4. Draft automation YAML including ALL existing + new
-5. write_config_safe("automations.yaml", yaml, dry_run=true)  -> Pre-validate
-6. Show user and get approval
-7. write_config_safe("automations.yaml", yaml)                -> Write safely
+1. Read configuration.yaml and follow includes to the actual automation source
+2. Read the complete source; preserve unrelated content and existing IDs
+3. Discover relevant entities/services and draft the minimal change
+4. write_config_safe(file_path=path, content=yaml, dry_run=true) -> Prevalidate
+5. Show the draft; obtain approval for writing and automation.reload
+6. write_config_safe(file_path=path, content=yaml) -> Stop if writing/validation fails
+7. call_service(domain="automation", service="reload") -> Only if approved
+8. Check reload result and affected entity with read-only tools; inspect errors if needed
+9. Report saved/reloaded/load-verified separately; suggest a separate functional test
 ```
+
+Reload stops running automation actions. Never trigger or enable an automation
+just to verify loading. If reload is unapproved or `call_service` is unavailable
+(for example in the `configuration` profile), report **saved, pending reload**.
+Offer HA Developer Tools → YAML for a manual reload or the `full` profile after
+an add-on restart; do not bypass the profile through shell/API calls.
 
 ### Write configuration for an integration (IMPORTANT!)
 ```

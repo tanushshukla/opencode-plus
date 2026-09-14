@@ -75,6 +75,7 @@ import { fileURLToPath } from "url";
 // Extracted pure-function modules (testable in isolation)
 import { detectAnomaly, searchEntities, generateSuggestions, generateStateSummary } from "./lib/intelligence.js";
 import { validateYamlStructure, resolveConfigPath } from "./lib/validation.js";
+import { configApplyGuidance } from "./lib/config-apply.js";
 import { extractContentFromHtml, extractConfigurationSection, extractYamlExamples } from "./lib/html-parser.js";
 import {
   createCompactPayload,
@@ -3976,7 +3977,7 @@ const TOOLS = [
   {
     name: "hab_run",
     title: "Run hab CLI Command",
-    description: "Run a Home Assistant Builder (hab) CLI command. hab is a comprehensive admin CLI that covers the full Home Assistant admin area via REST and WebSocket APIs. Use this for: dashboard CRUD (create views, sections, cards), area/floor/zone/label/person/category management, helper entity creation, automation/script/scene CRUD, backup/restore, blueprint management, calendar and todo list management, notification management, integration reload/enable/disable, repair issue management, event firing, template rendering, device management, and search. hab outputs human-readable text by default; add --json for structured JSON output. Examples: 'entity list --domain light --json', 'area create Kitchen', 'scene activate \"Movie Time\"', 'todo item add todo.shopping Milk', 'notification create --message \"Done\" --title \"Status\"', 'integration reload hue', 'repairs list --json', 'template render --expression \"{{ states(\\'sensor.temp\\') }}\"'. Run with just 'help' to see all available command groups.",
+    description: "Run a Home Assistant Builder (hab) CLI command for dashboards, area/floor/zone/label/person/category management, helpers, backups, blueprints, calendars, todo lists, notifications, integrations, repairs, events, templates, devices, and search. Automation/script/scene API CRUD is available when specifically needed, but configuration edits default to YAML + write_config_safe followed by an approved domain reload via call_service and read-only verification. Needing a reload is not a reason to switch to API editing. Check 'automation --help' and subcommand help for supported payload/file options; do not guess flags or improvise JSON quoting. Output is human-readable by default; add --json for structured output. Examples: 'entity list --domain light --json', 'area create Kitchen', 'integration reload hue', 'repairs list --json'. Run 'help' for command groups.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5712,7 +5713,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         
         if (success) {
-          responseText += `---\n**Config is valid and has been written to disk.** You can reload or restart HA to apply changes.\n`;
+          responseText += configApplyGuidance(file_path, { persisted: !dry_run, validated: success });
         }
         
         return makeCompatibleResponse({
@@ -7494,6 +7495,7 @@ Focus on practical solutions I can implement.`,
 **Goal:** ${goal}
 
 Please help me create this automation by following these steps in order:
+First load the home-assistant-configuration skill and resolve automation includes/packages from configuration.yaml to find the actual source file.
 1. **Read the existing automations file** using \`read_file\` on \`automations.yaml\` (or wherever automations are stored). You MUST include ALL existing automations in the final write â€” never overwrite them.
 2. Use \`search_entities\` to find relevant entities for this automation
 3. Check if similar automations already exist using \`get_states\` with domain "automation"
@@ -7501,6 +7503,10 @@ Please help me create this automation by following these steps in order:
 5. Suggest any conditions that might be needed
 6. Define the action(s) to take
 7. Provide the complete YAML that contains ALL existing automations PLUS the new one
+8. Preserve existing IDs and prevalidate with \`write_config_safe(file_path=..., content=..., dry_run=true)\`. Show the draft and obtain approval for both writing and reloading (automation reload stops running actions).
+9. Save with \`write_config_safe\`; stop if writing or validation fails. Only after success and reload approval, use \`call_service(domain="automation", service="reload")\`.
+10. Check the reload result and affected runtime entity using read-only tools; inspect relevant errors if needed. Never trigger or enable the automation just to verify loading.
+11. Report saved/reloaded/load-verified separately. If reload is unapproved or call_service is absent, report saved, pending reload; offer HA Developer Tools → YAML or the full profile after an add-on restart. Never bypass a reduced profile via shell/API calls.
 
 **CRITICAL:** When writing to ANY config file, the content must include everything that was already there. Writing only new content will permanently delete existing configuration. \`write_config_safe\` will block writes that would lose list entries, drop top-level keys, or significantly shrink the file â€” but always verify yourself first by reading the file before writing.
 

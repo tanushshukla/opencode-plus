@@ -53,7 +53,18 @@ function responseFor(request) {
   if (user.includes("finished editing automations.yaml")) {
     return toolResults
       ? { role: "assistant", content: "Reloaded the automations; no restart was needed." }
-      : toolCall("call_service", { domain: "automation", service: "reload" });
+       : toolCall("call_service", { domain: "automation", service: "reload" });
+  }
+  if (user.includes("I approve saving this exact draft")) {
+    if (toolResults === 0) return toolCall("write_config_safe", {
+      file_path: "automations.yaml", content: user.split("Complete draft:\n")[1], dry_run: false,
+    });
+    if (toolResults === 1) return toolCall("call_service", { domain: "automation", service: "reload" });
+    if (toolResults === 2) return toolCall("get_entity_details", { entity_id: "automation.quote_test" });
+    return { role: "assistant", content: "Saved, reloaded, and load verified. The automation remains off; actions were not tested." };
+  }
+  if (user.includes("I approved the write only")) {
+    return { role: "assistant", content: "Saved and validated, pending reload. I need your approval before automation.reload, which stops running automation actions." };
   }
   return toolResults === 0
     ? toolCall("get_integration_docs", { integration: "template" })
@@ -99,9 +110,9 @@ describe("ha-agent-eval runner", () => {
 
       expect(result.code, result.stderr).toBe(0);
       expect(result.stderr).toBe("");
-      expect(result.stdout).toContain("8/8 scenarios passed");
+      expect(result.stdout).toContain("10/10 scenarios passed");
       const report = JSON.parse(await readFile(output, "utf8"));
-      expect(report.summary).toEqual({ total: 8, passed: 8, failed: 0 });
+      expect(report.summary).toEqual({ total: 10, passed: 10, failed: 0 });
     } finally {
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

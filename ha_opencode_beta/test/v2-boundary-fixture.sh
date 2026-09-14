@@ -99,7 +99,11 @@ printf '%s\n' true > "${RUNTIME_ROOT}/native-mcp-enabled"
 chmod 600 "${RUNTIME_ROOT}/sidecar-secret" "${RUNTIME_ROOT}/server-password"
 chmod 600 "${RUNTIME_ROOT}/ready" "${RUNTIME_ROOT}/mcp-enabled" "${RUNTIME_ROOT}/native-mcp-enabled"
 cp /opt/ha-mcp-server/AGENTS.md "${RUNTIME_ROOT}/config/opencode/AGENTS.md"
+mkdir "${RUNTIME_ROOT}/reload-plugin"
+cp /tmp/v2-caller-secret-plugin.js "${RUNTIME_ROOT}/reload-plugin/index.js"
+printf '%s\n' '{"type":"module"}' > "${RUNTIME_ROOT}/reload-plugin/package.json"
 node /opt/opencode-v2-homeassistant/managed-config.js --restrict-sensitive-files false --plugin-enabled true \
+    --plugin-package "${RUNTIME_ROOT}/reload-plugin" \
     --mcp-endpoint "http://127.0.0.1:${PROXY_PORT}/mcp" --native-mcp-enabled true \
     --native-mcp-endpoint "http://127.0.0.1:${PROXY_PORT}/native-mcp" \
     > "${RUNTIME_ROOT}/managed.json"
@@ -144,6 +148,8 @@ for _attempt in $(seq 1 100); do
 done
 test -S "${RUNTIME_ROOT}/credential.sock"
 
+python3 /tmp/v2-caller-secret-native.py "${RUNTIME_ROOT}"
+
 /usr/local/bin/opencode-v2-launch "${RUNTIME_ROOT}" "${GENERATION_ROOT}" \
     "${CACHE_ROOT}" "${SERVER_PORT}" "${RUNTIME_ROOT}/workspace" >"${BOUNDARY_ROOT}/v2.log" 2>&1 &
 SECURE_PID=$!
@@ -166,7 +172,7 @@ if cat "/proc/${SECURE_PID}/environ" >/dev/null 2>&1; then
     exit 1
 fi
 
-test ! -e "/proc/${SECURE_PID}/fd/3"
+grep -q 'V2 caller credential module-reload regression passed' "${BOUNDARY_ROOT}/v2.log"
 if tr '\0' '\n' < "/proc/${SECURE_PID}/cmdline" \
     | grep -F -f "${RUNTIME_ROOT}/server-password" >/dev/null; then exit 1; fi
 

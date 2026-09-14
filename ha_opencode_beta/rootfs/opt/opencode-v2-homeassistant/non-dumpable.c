@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
-#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
@@ -11,6 +10,24 @@
 #include <unistd.h>
 
 #define SECRET_LENGTH 64
+
+/* The broker handoff happens once, before JavaScript starts. Keep the MCP
+ * credential in this preloaded library for the lifetime of that process, not
+ * in an FD that a plugin activation can consume/close and the runtime can reuse.
+ * Local plugin modules may be re-evaluated; this native state is not reloaded.
+ */
+static char caller_secret[SECRET_LENGTH];
+static pid_t caller_owner = 0;
+
+int opencode_v2_copy_caller_secret(char *output, int length) {
+  /* A forked child must not gain access to the parent's retained credential.
+   * After exec, a fresh library has no credential without broker approval.
+   */
+  if (caller_owner == 0 || caller_owner != getpid() ||
+      output == NULL || length != SECRET_LENGTH) return 0;
+  memcpy(output, caller_secret, SECRET_LENGTH);
+  return SECRET_LENGTH;
+}
 
 static void fail(void) {
   _exit(126);
@@ -68,24 +85,8 @@ __attribute__((constructor)) static void harden_process(void) {
   explicit_bzero(password, sizeof(password));
 
   if (has_sidecar) {
-    int descriptors[2];
-    if (pipe2(descriptors, O_CLOEXEC) != 0) fail();
-    size_t written = 0;
-    while (written < SECRET_LENGTH) {
-      ssize_t count = write(descriptors[1], sidecar + written, SECRET_LENGTH - written);
-      if (count < 0 && errno == EINTR) continue;
-      if (count <= 0) fail();
-      written += (size_t)count;
-    }
-    close(descriptors[1]);
-    if (descriptors[0] != 3) {
-      if (dup3(descriptors[0], 3, 0) != 3) fail();
-      close(descriptors[0]);
-    } else if (fcntl(3, F_SETFD, 0) != 0) {
-      fail();
-    }
-  } else {
-    close(3);
+    memcpy(caller_secret, sidecar, SECRET_LENGTH);
+    caller_owner = getpid();
   }
   explicit_bzero(sidecar, sizeof(sidecar));
   unsetenv("OPENCODE_V2_CREDENTIAL_SOCKET");

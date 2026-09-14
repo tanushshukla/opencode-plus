@@ -146,9 +146,16 @@ echo -e "${GRAY}Copy: select text (auto-copies) · Paste: ${NC}${GREEN}Ctrl+V${N
 echo ""
 
 # Launch OpenCode
+# Register this managed shell, whose identity survives exec bash below. The quit
+# helper discovers only its current standalone TUI child, including after the
+# user types `opencode` again. Registration failure must not block the terminal.
+python3 /usr/local/bin/terminal-control.py register >/dev/null 2>&1 || true
 opencode
 
 # When opencode exits, show help and drop to bash
+# Clear mouse reporting and paste/focus modes even after an unexpected TUI exit.
+printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1015l\033[?1004l\033[?2004l\033[?25h'
+stty sane 2>/dev/null || true
 show_shell_help
 
 # Start interactive bash shell

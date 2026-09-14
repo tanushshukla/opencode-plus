@@ -219,7 +219,7 @@ RUN set -e; \
     done; \
     kill "$TTYD_PID"; \
     [ "$ok" = "1" ]; \
-    python3 /opt/ttyd/inject-clipboard.py /tmp/ttyd-index.html /opt/ttyd/index.html /opt/ttyd/clipboard.js /opt/ttyd/touch-scroll.js /opt/ttyd/resize-fit.js; \
+    python3 /opt/ttyd/inject-clipboard.py /tmp/ttyd-index.html /opt/ttyd/index.html /opt/ttyd/clipboard.js /opt/ttyd/touch-scroll.js /opt/ttyd/resize-fit.js /opt/ttyd/quit.js; \
     rm -f /tmp/ttyd-index.html
 
 # Set working directory to HA config (mounted at runtime)

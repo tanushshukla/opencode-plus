@@ -159,6 +159,11 @@ dashboards. These files are designed for editing. Load
 `home-assistant-configuration` before changing one — it carries the mandatory
 style guide, the safe-write path, and the reload/restart rules.
 
+Automation edits are complete only after the approved safe write, approved
+`automation.reload` via `call_service`, and read-only load verification. Report
+saved/reloaded/verified separately. If reload is unapproved or unavailable in the
+current tool profile, report it as pending; never bypass the profile via shell.
+
 ### 2. MCP tools (runtime API)
 
 Real-time interaction with the running instance:
@@ -182,8 +187,8 @@ is missing, the profile is reduced — say so instead of working around it.
 ### 3. hab CLI (Home Assistant Builder)
 
 A CLI designed for AI agents, pre-authenticated via the Supervisor token. It is
-the primary path for dashboards, areas/floors/zones/labels, helpers, scripts,
-scenes, blueprints, backups, people, categories, to-do lists, notifications,
+the primary path for dashboards, areas/floors/zones/labels, helpers,
+blueprints, backups, people, categories, to-do lists, notifications,
 integrations, repairs, events and templates — the registry-level work that has
 no YAML file behind it.
 

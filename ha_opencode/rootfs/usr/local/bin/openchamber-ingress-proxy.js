@@ -3,6 +3,7 @@ const http = require("http");
 const net = require("net");
 const zlib = require("zlib");
 const { routeHaMcp } = require("./ha-mcp-ingress.js");
+const { routeTerminalControl } = require("./terminal-control.js");
 const TERMINAL = process.env.HA_INGRESS_UI === "terminal";
 
 const LISTEN_HOST = process.env.OPENCHAMBER_INGRESS_HOST || "0.0.0.0";
@@ -587,6 +588,7 @@ function proxyRequest(req, res) {
   const upstreamPath = stripIngressPath(req.url || "/", ingressPath);
 
   if (routeHaMcp(req, res, { ingressPath, upstreamPath, lan: ALLOW_ANY_REMOTE })) return;
+  if (routeTerminalControl(req, res, { ingressPath, upstreamPath, terminal: TERMINAL, lan: ALLOW_ANY_REMOTE })) return;
   if (TERMINAL) {
     forwardRequest(req, res, { ingressPath, upstreamPath });
     return;

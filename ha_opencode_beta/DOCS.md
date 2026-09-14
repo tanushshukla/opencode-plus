@@ -110,6 +110,32 @@ What stays in `AGENTS.md` — and therefore loads in every session — is the pa
 
 The skills are deployed to `/data/.config/opencode/skills/`, where OpenCode discovers them. **You can edit them.** The add-on refreshes a skill at start-up only when your copy is byte-for-byte what it last wrote; once you change one, it is yours, the update is skipped, and the add-on log says so. Delete your edited copy if you later want the shipped version back.
 
+## Editing automations: saved versus active
+
+The bundled `home-assistant-configuration` skill guides the agent through locating
+the automation source (including custom includes/packages), preserving existing
+automations and IDs, prevalidating the draft, and saving with `write_config_safe`.
+You can ask: “Use the configuration skill to edit this automation, then explain
+the reload and verification steps.”
+
+Saving YAML does not apply it to the running instance. The agent should request
+approval for both the write and `automation.reload`, then verify loading with
+read-only tools. A domain reload avoids a Core restart but stops currently
+running automation actions. The final response should distinguish **saved**,
+**reloaded**, and **load verified**; testing the automation's actions is separate
+and requires approval.
+
+The `configuration` MCP profile supports safe writes but omits `call_service`, so
+the agent must leave the change **pending reload**. Reload Automations in
+Home Assistant's **Developer Tools → YAML**, or choose the `full` MCP profile and
+restart the add-on to let the agent perform an approved reload. If a reload fails,
+the agent should report that and inspect relevant errors, rather than report the
+edit as complete or switch to shell/API editing.
+
+Updated bundled guidance takes effect after an add-on restart and a new OpenCode
+session. User-edited skill copies are preserved by updates; review those copies
+if an older customized procedure is still being loaded.
+
 ## Read-Only Session
 
 > **Requires `interface_mode: terminal`.** `ha-readonly` is a terminal command, and in `openchamber` mode the add-on does not start a terminal — so in that mode it is not available. There is no OpenChamber equivalent: OpenChamber drives one managed OpenCode server with one configuration, and a read-only *option* on that server would change your normal session rather than sit beside it, which is exactly what this feature avoids.
@@ -145,7 +171,23 @@ The built-in `homeassistant` MCP server can expose a narrower capability set thr
 
 For local Ollama and other OpenAI-compatible models, configure an effective context window of at least 64K and restart or reload the model. The complete OpenCode prompt includes built-in tools, Home Assistant tools, instructions, and conversation history; a smaller context can silently truncate tool definitions even when a small standalone `curl` tool-call test succeeds. Use `ha-mcp tools` from the terminal, or ask OpenCode to run it with its shell tool in OpenChamber mode, to list what the MCP server objectively advertises. Asking the model which tools it has only tests model recall. If the command lists a tool that the model will not call, check the model server for prompt truncation and tool-parser errors.
 
+## MCP Plugin Reload Reliability
+
+The beta Home Assistant MCP plugin obtains its caller credential from the V2
+server's non-dumpable native bootstrap library. The credential broker still
+delivers it once to the authenticated server process; subsequent plugin
+activations copy it from process-owned memory. No caller credential is stored in
+plugin options, written to the environment, or handed to shell subprocesses.
+
+This replaces the earlier FD-3 handoff, which could fail on a second activation
+with `EAGAIN: resource temporarily unavailable, read` after descriptor reuse
+(#112). Reloads of the local plugin module also use the same native holder.
+Updating requires a beta app restart so the matching native library and plugin
+load together; changing only the JavaScript in a running older image is not
+sufficient.
+
 ## Model Tool Evaluation
+
 
 `ha-agent-eval` is an opt-in developer command that calls a real OpenAI-compatible chat-completions endpoint against fixed synthetic Home Assistant scenarios. It supplies mocked tool results and never contacts Home Assistant or executes a real tool.
 

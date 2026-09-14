@@ -23,7 +23,7 @@ const scripts = (channel) => path.resolve(__dirname, "../..", channel, "rootfs/u
 function load(file, dependencies, extras = {}) {
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(file, "utf8"), {
-    module, require: (name) => dependencies[name] || require(name), URL, Buffer,
+    module, require: (name) => dependencies[name] || require(name.startsWith(".") ? path.resolve(path.dirname(file), name) : name), URL, Buffer,
     console: { log() {}, error() {} }, ...extras,
   }, { filename: file });
   return module.exports;
@@ -233,7 +233,12 @@ for (const channel of ["ha_opencode", "ha_opencode_beta"]) {
 
 test("router implementation parity and service graph", () => {
   for (const file of ["ha-mcp-ingress.js", "openchamber-ingress-proxy.js"]) {
-    assert.equal(fs.readFileSync(path.join(scripts("ha_opencode"), file), "utf8"), fs.readFileSync(path.join(scripts("ha_opencode_beta"), file), "utf8"));
+    // Stable's quit action depends on V1's SIGHUP teardown contract. Keep the
+    // shared router identical except for this explicit stable-only extension.
+    const stable = fs.readFileSync(path.join(scripts("ha_opencode"), file), "utf8")
+      .replace('const { routeTerminalControl } = require("./terminal-control.js");\n', "")
+      .replace('  if (routeTerminalControl(req, res, { ingressPath, upstreamPath, terminal: TERMINAL, lan: ALLOW_ANY_REMOTE })) return;\n', "");
+    assert.equal(stable, fs.readFileSync(path.join(scripts("ha_opencode_beta"), file), "utf8"));
   }
   for (const channel of ["ha_opencode", "ha_opencode_beta"]) {
     const services = path.resolve(scripts(channel), "../../../etc/s6-overlay/s6-rc.d");

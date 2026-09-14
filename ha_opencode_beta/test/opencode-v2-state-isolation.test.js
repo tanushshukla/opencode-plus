@@ -212,7 +212,8 @@ describe("OpenCode V2 state isolation", () => {
     assert.match(secureLauncher, /publish_expected_pid/);
     assert.match(secureLauncher, /OPENCODE_V2_CREDENTIAL_SOCKET/);
     assert.match(nonDumpable, /setenv\("OPENCODE_SERVER_PASSWORD"/);
-    assert.match(nonDumpable, /pipe2\(descriptors, O_CLOEXEC\)/);
+    assert.match(nonDumpable, /memcpy\(caller_secret, sidecar, SECRET_LENGTH\)/);
+    assert.match(nonDumpable, /caller_owner = getpid\(\)/);
     assert.match(credentialBroker, /SO_PEERCRED/);
     assert.match(credentialBroker, /#define RUNTIME_UID 0/);
     assert.match(credentialBroker, /validate_expected_identity\(pid_path, peer\.pid\)/);
@@ -274,7 +275,10 @@ describe("OpenCode V2 state isolation", () => {
     assert.match(v2Sidecar, /OPENCODE_NATIVE_HA_MCP_ENABLED="\$\{OPENCODE_NATIVE_HA_MCP_ENABLED:-false\}"/);
     assert.doesNotMatch(v2Sidecar, /OPENCODE_NATIVE_HA_MCP_ENABLED=false/);
     assert.doesNotMatch(v2Sidecar, /OPENCODE_SERVER_PASSWORD/);
-    assert.match(v2Plugin, /CALLER_SECRET_FD = 3/);
+    assert.match(v2Plugin, /opencode_v2_copy_caller_secret/);
+    assert.doesNotMatch(v2Plugin, /CALLER_SECRET_FD|readFileSync|closeSync/);
+    assert.match(nonDumpable, /caller_owner != getpid\(\)/);
+    assert.doesNotMatch(nonDumpable, /pipe2|dup3/);
     assert.match(v2Plugin, /NATIVE_MCP_SERVER_NAME = "homeassistant_native"/);
     assert.match(v2Plugin, /nativeEndpoint/);
     assert.match(runtimeGuard, /import\("bun:ffi"\)/);

@@ -361,6 +361,8 @@ RUN set -e; \
 # the Supervisor devcontainer separately covers the shipped s6 service graph.
 FROM runtime AS boundary-test
 RUN --mount=type=bind,source=test/v2-boundary-fixture.sh,target=/tmp/v2-boundary-fixture.sh,readonly \
+    --mount=type=bind,source=test/v2-caller-secret-plugin.js,target=/tmp/v2-caller-secret-plugin.js,readonly \
+    --mount=type=bind,source=test/v2-caller-secret-native.py,target=/tmp/v2-caller-secret-native.py,readonly \
     OPENCODE_V2_VERSION="${OPENCODE_V2_VERSION}" \
     timeout --signal=TERM --kill-after=10s 240s \
     bash /tmp/v2-boundary-fixture.sh

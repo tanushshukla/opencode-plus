@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import plugin, {
-  CALLER_SECRET_FD,
+  CALLER_SECRET_LIBRARY,
   MCP_SERVER_NAME,
   NATIVE_MCP_SERVER_NAME,
   PLUGIN_ID,
@@ -83,50 +83,76 @@ describe("Home Assistant OpenCode V2 plugin", () => {
     );
   });
 
-  it("reads the caller secret from fd 3 and closes it before returning", () => {
-    const calls = [];
-    const secret = readCallerSecret({
-      read(fd, encoding) {
-        calls.push(["read", fd, encoding]);
-        return CALLER_SECRET;
+  function nativeReader({ value = CALLER_SECRET, count = 64, fail = false } = {}) {
+    const buffers = [];
+    let closed = 0;
+    const read = () => readCallerSecret({ loadFfi: async () => ({
+      FFIType: { ptr: "ptr", int: "int" },
+      ptr(buffer) { buffers.push(buffer); return buffer; },
+      dlopen(file, symbols) {
+        assert.equal(file, CALLER_SECRET_LIBRARY);
+        assert.deepEqual(symbols.opencode_v2_copy_caller_secret, { args: ["ptr", "int"], returns: "int" });
+        return {
+          symbols: { opencode_v2_copy_caller_secret(buffer, length) {
+            assert.equal(length, 64);
+            buffer.write(value);
+            if (fail) throw new Error(`Synthetic native failure: ${value}`);
+            return count;
+          } },
+          close() { closed++; },
+        };
       },
-      close(fd) {
-        calls.push(["close", fd]);
-      },
-    });
+    }) });
+    return { read, buffers, closed: () => closed };
+  }
 
-    assert.equal(secret, CALLER_SECRET);
-    assert.deepEqual(calls, [
-      ["read", CALLER_SECRET_FD, "utf8"],
-      ["close", CALLER_SECRET_FD],
-    ]);
+  it("copies the process-owned credential repeatedly and wipes temporary buffers", async () => {
+    const native = nativeReader();
+    assert.deepEqual(await Promise.all([native.read(), native.read(), native.read()]), Array(3).fill(CALLER_SECRET));
+    assert.equal(native.closed(), 3);
+    for (const buffer of native.buffers) assert.ok(buffer.every((byte) => byte === 0));
   });
 
-  it("closes the caller-secret fd on read and validation failures", () => {
-    let closeCount = 0;
-    assert.throws(
-      () => readCallerSecret({
-        read() {
-          throw new Error("fd read failed");
-        },
-        close() {
-          closeCount += 1;
-        },
-      }),
-      /fd read failed/,
-    );
-    assert.equal(closeCount, 1);
+  it("fails closed on missing, malformed or failed native copies without logging credentials", async () => {
+    for (const options of [{ count: 0 }, { count: 63 }, { value: "A".repeat(64) }, { fail: true }]) {
+      const native = nativeReader(options);
+      await assert.rejects(native.read(), (error) => {
+        assert.match(error.message, /caller credential is unavailable/);
+        assert.doesNotMatch(error.message, new RegExp(CALLER_SECRET));
+        assert.equal(error.cause, undefined);
+        return true;
+      });
+      assert.equal(native.closed(), 1);
+      for (const buffer of native.buffers) assert.ok(buffer.every((byte) => byte === 0));
+    }
+    await assert.rejects(readCallerSecret({ loadFfi: async () => { throw new Error(CALLER_SECRET); } }), /caller credential is unavailable/);
+  });
 
-    assert.throws(
-      () => readCallerSecret({
-        read: () => "A".repeat(64),
-        close() {
-          closeCount += 1;
-        },
-      }),
-      /64 lowercase hexadecimal characters/,
-    );
-    assert.equal(closeCount, 2);
+  it("reactivates after disposal and failed registration using fresh setup closures", async () => {
+    const native = nativeReader();
+    let attempts = 0;
+    let disposed = 0;
+    const ctx = { options: DEFAULT_OPTIONS, mcp: { async transform(callback) {
+      if (++attempts === 2) throw new Error("registration failed");
+      callback({ set(name, config) {
+        assert.equal(name, MCP_SERVER_NAME);
+        assert.equal(config.headers.Authorization, `Bearer ${CALLER_SECRET}`);
+      } });
+      return { async dispose() { disposed++; } };
+    } } };
+    const setup = createSetup({ readSecret: native.read });
+    await (await setup(ctx))();
+    await assert.rejects(setup(ctx), /registration failed/);
+    await (await createSetup({ readSecret: native.read })(ctx))();
+    assert.equal(attempts, 3);
+    assert.equal(disposed, 2);
+    assert.equal(native.closed(), 3);
+  });
+
+  it("rejects invalid options before acquiring credentials", async () => {
+    await assert.rejects(createSetup({ readSecret() { assert.fail("must not acquire secret"); } })({
+      options: { endpoint: "https://example.test/mcp" },
+    }), /plain loopback HTTP URL/);
   });
 
   it("builds a direct-tool remote MCP config with an in-memory bearer header", () => {

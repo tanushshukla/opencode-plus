@@ -1700,6 +1700,52 @@ ha-logs host 300 | grep -i "out of memory\|oom\|opencode"
 
 OpenCode can use significant memory on larger Home Assistant installations. This add-on disables snapshots, ignores noisy internal paths, and performs no runtime installation at start-up, but systems with limited RAM or full swap may still need more available memory.
 
+### Quit OpenCode without stopping the app
+
+In **Terminal** mode, the small **Quit OpenCode** button at the top-right uses
+the same build-time page injection as the clipboard control. After confirmation,
+it requests graceful exit of the managed standalone OpenCode instance and returns
+you to the existing shell. Type `opencode` to start it again; saved conversations
+remain available. Any unsent input or in-progress work may be interrupted.
+
+The terminal is shared: quitting affects all browsers attached to that tmux
+session. Closing a browser tab still only disconnects it. The optional LAN server
+and other independent app services remain running, so the amount of memory freed
+depends on your setup.
+
+The button supports the default standalone `opencode` launch in the managed
+terminal, including typing that command again at the fallback shell. It does not
+control `opencode serve`, `attach`, other command-line modes, or OpenChamber.
+Customized keybindings do not affect it. If startup is incomplete, the instance
+changed, or shutdown times out, it reports that rather than force-killing the
+process. Use OpenCode's normal exit action for other launch modes.
+
+### Editing automations: saved versus active
+
+The bundled `home-assistant-configuration` skill guides the agent through locating
+the automation source (including custom includes/packages), preserving existing
+automations and IDs, prevalidating the draft, and saving with `write_config_safe`.
+You can ask: “Use the configuration skill to edit this automation, then explain
+the reload and verification steps.”
+
+Saving YAML does not apply it to the running instance. The agent should request
+approval for both the write and `automation.reload`, then verify loading with
+read-only tools. A domain reload avoids a Core restart but stops currently
+running automation actions. The final response should distinguish **saved**,
+**reloaded**, and **load verified**; testing the automation's actions is separate
+and requires approval.
+
+The `configuration` MCP profile supports safe writes but omits `call_service`, so
+the agent must leave the change **pending reload**. Reload Automations in
+Home Assistant's **Developer Tools → YAML**, or choose the `full` MCP profile and
+restart the add-on to let the agent perform an approved reload. If a reload fails,
+the agent should report that and inspect relevant errors, rather than report the
+edit as complete or switch to shell/API editing.
+
+Updated bundled guidance takes effect after an add-on restart and a new OpenCode
+session. User-edited skill copies are preserved by updates; review those copies
+if an older customized procedure is still being loaded.
+
 ### Can't connect to AI provider
 
 1. Make sure you have internet access

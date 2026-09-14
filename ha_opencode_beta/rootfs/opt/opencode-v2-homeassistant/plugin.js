@@ -1,10 +1,9 @@
-import { closeSync, readFileSync } from "node:fs";
 import { Plugin } from "@opencode-ai/plugin";
 
 export const PLUGIN_ID = "homeassistant.mcp";
 export const MCP_SERVER_NAME = "homeassistant";
 export const NATIVE_MCP_SERVER_NAME = "homeassistant_native";
-export const CALLER_SECRET_FD = 3;
+export const CALLER_SECRET_LIBRARY = "/usr/local/lib/opencode-v2-non-dumpable.so";
 
 const SENSITIVE_SHELL_ENV = new Set([
   "OPENCODE_PASSWORD",
@@ -116,18 +115,32 @@ function requireCallerSecret(value) {
   return value;
 }
 
-export function readCallerSecret({
-  fd = CALLER_SECRET_FD,
-  read = readFileSync,
-  close = closeSync,
+export async function readCallerSecret({
+  loadFfi = () => import("bun:ffi"),
 } = {}) {
-  let value;
+  // The preloaded library owns the one-time broker result across all locations
+  // and module generations. Never read or close a borrowed process descriptor.
+  const buffer = Buffer.alloc(64);
+  let library;
   try {
-    value = read(fd, "utf8");
+    const { dlopen, FFIType, ptr } = await loadFfi();
+    library = dlopen(CALLER_SECRET_LIBRARY, {
+      opencode_v2_copy_caller_secret: {
+        args: [FFIType.ptr, FFIType.int],
+        returns: FFIType.int,
+      },
+    });
+    if (library.symbols.opencode_v2_copy_caller_secret(ptr(buffer), buffer.length) !== buffer.length) {
+      throw new Error("Native caller credential unavailable");
+    }
+    return requireCallerSecret(buffer.toString("utf8"));
+  } catch {
+    // Do not attach an underlying error: plugin failures are written to logs.
+    throw new Error("Home Assistant sidecar caller credential is unavailable; restart the beta app");
   } finally {
-    close(fd);
+    buffer.fill(0);
+    library?.close();
   }
-  return requireCallerSecret(value);
 }
 
 export function createServerConfig(options, callerSecret, endpoint = options.endpoint) {
@@ -172,8 +185,8 @@ async function disposeRegistrations(registrations) {
 
 export function createSetup({ readSecret = readCallerSecret } = {}) {
   return async function setup(ctx) {
-    const callerSecret = readSecret();
     const options = parseOptions(ctx.options);
+    const callerSecret = requireCallerSecret(await readSecret());
     const server = createServerConfig(options, callerSecret);
     const nativeServer = options.nativeEnabled
       ? createServerConfig(options, callerSecret, options.nativeEndpoint)
