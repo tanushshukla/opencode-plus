@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## 2.5.5
+
 - **Quit OpenCode from the browser terminal (#113)** — added a compact top-right quit button using the existing ttyd page injection. It requests the managed terminal instance's graceful exit, returns to the shell, and leaves tab-disconnect persistence and independent servers intact. Exit requests are Ingress-only, bound to the displayed instance, and never escalate to a force-kill. Verified through real Home Assistant Core Ingress in the official devcontainer, including active MCP/LSP cleanup, saved-conversation recovery, shared terminals, customized bindings, and emulated mobile touch.
 
 - **Clearer automation editing workflow (#115)** — aligned agent guidance around safe YAML writes, approved domain reloads, and read-only load verification. Successful safe writes now give file-specific apply guidance and distinguish saved changes from active configuration; reduced tool profiles explicitly leave reload pending.
