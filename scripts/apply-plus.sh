@@ -20,6 +20,9 @@ README="$ROOT/README.md"
 REPOYAML="$ROOT/repository.yaml"
 HA_OPENCODE_RUN="$ROOT/ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-opencode/run"
 HA_OPENCHAMBER_RUN="$ROOT/ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber/run"
+HA_OPENCHAMBER_INGRESS_RUN="$ROOT/ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber-ingress/run"
+S6_TEST="$ROOT/ha_opencode/test/openchamber-s6-services.test.js"
+MCP_TEST="$ROOT/ha_opencode/test/ha-mcp-ingress.test.js"
 MARKER='# --- opencode-plus overlay ---'
 BUMP="${1:-}"
 
@@ -72,20 +75,36 @@ if [ "$newver" != "$current" ]; then
   changed=1
 fi
 
-# --- ha-opencode/run: move ttyd from 8099 to 8089 -----------------------------
-if grep -q ' -p 8099 \\$' "$HA_OPENCODE_RUN"; then
-  sedi 's/ -p 8099 \\/ -p 8089 \\/' "$HA_OPENCODE_RUN"
+# --- ha-openchamber-ingress/run: route the shared ingress proxy through the
+# image-service wrapper (loopback 8101) instead of straight to ttyd (8100) or
+# OpenChamber (3010). The proxy itself keeps 8099 so its remote-address-bound
+# routes (/terminal/quit, /ha-mcp) still see the Supervisor socket.
+if grep -Eq '^ *export OPENCHAMBER_UPSTREAM_PORT=(3010|8100)$' "$HA_OPENCHAMBER_INGRESS_RUN"; then
+  sedi -E 's/^( *export OPENCHAMBER_UPSTREAM_PORT=)(3010|8100)$/\18101/' "$HA_OPENCHAMBER_INGRESS_RUN"
   changed=1
 fi
-# Fix the log message to match the new port.
-if grep -q 'Starting ttyd on port 8099' "$HA_OPENCODE_RUN"; then
-  sedi 's/Starting ttyd on port 8099/Starting ttyd on port 8089/' "$HA_OPENCODE_RUN"
+# Earlier overlays moved this proxy to 8090 and ttyd to 8089; undo that if a
+# tree still carries it so upstream's port layout is restored.
+if grep -q '^OPENCHAMBER_INGRESS_PORT=8090$' "$HA_OPENCHAMBER_RUN"; then
+  sedi 's/^OPENCHAMBER_INGRESS_PORT=8090$/OPENCHAMBER_INGRESS_PORT=8099/' "$HA_OPENCHAMBER_RUN"
+  changed=1
+fi
+if grep -q ' -p 8089 \\$' "$HA_OPENCODE_RUN"; then
+  sedi 's/ -p 8089 \\/ -p 8100 \\/' "$HA_OPENCODE_RUN"
   changed=1
 fi
 
-# --- ha-openchamber/run: move OC ingress proxy from 8099 to 8090 --------------
-if grep -q '^OPENCHAMBER_INGRESS_PORT=8099$' "$HA_OPENCHAMBER_RUN"; then
-  sedi 's/^OPENCHAMBER_INGRESS_PORT=8099$/OPENCHAMBER_INGRESS_PORT=8090/' "$HA_OPENCHAMBER_RUN"
+# --- upstream tests: accept the overlay's upstream port on the stable channel --
+if grep -q 'OPENCHAMBER_UPSTREAM_PORT=3010\$/m' "$S6_TEST"; then
+  sedi 's|OPENCHAMBER_UPSTREAM_PORT=3010\$/m|OPENCHAMBER_UPSTREAM_PORT=(?:3010\|8101)$/m|' "$S6_TEST"
+  changed=1
+fi
+if grep -q 'export OPENCHAMBER_UPSTREAM_PORT=8100\\s+fi' "$S6_TEST"; then
+  sedi 's|export OPENCHAMBER_UPSTREAM_PORT=8100\\s+fi|export OPENCHAMBER_UPSTREAM_PORT=(?:8100\|8101)\\s+fi|' "$S6_TEST"
+  changed=1
+fi
+if grep -q '/OPENCHAMBER_UPSTREAM_PORT=8100/' "$MCP_TEST"; then
+  sedi 's|/OPENCHAMBER_UPSTREAM_PORT=8100/|/OPENCHAMBER_UPSTREAM_PORT=(?:8100\|8101)/|' "$MCP_TEST"
   changed=1
 fi
 
@@ -112,8 +131,8 @@ if ! grep -qF "$MARKER" "$DOCKERFILE"; then
   cat >> "$DOCKERFILE" <<'EOF'
 
 # --- opencode-plus overlay ---
-# Image upload wrapper: serves the ingress UI on 8099, proxies the terminal
-# to 8089 (terminal mode) or the OpenChamber proxy to 8090 (OpenChamber mode),
+# Image upload wrapper: loopback 8101 behind the shared ingress router (8099),
+# wraps ttyd (8100, terminal mode) or OpenChamber (3010, OpenChamber mode) and
 # saves pasted images to /data/images. Kept as an append-only block so upstream
 # merges never conflict here.
 RUN chmod +x /opt/image-service/server.js \

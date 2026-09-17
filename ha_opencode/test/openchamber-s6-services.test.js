@@ -59,8 +59,8 @@ describe("OpenChamber s6 service ownership", () => {
       assert.match(ingress, /^export OPENCHAMBER_INGRESS_HOST="0\.0\.0\.0"$/m);
       assert.match(ingress, /^export OPENCHAMBER_INGRESS_PORT=8099$/m);
       assert.match(ingress, /^export OPENCHAMBER_UPSTREAM_HOST="127\.0\.0\.1"$/m);
-      assert.match(ingress, /^export OPENCHAMBER_UPSTREAM_PORT=3010$/m);
-      assert.match(ingress, /if \[ "\$\{HA_INGRESS_UI\}" != "openchamber" \]; then\s+export HA_INGRESS_UI="terminal"\s+export OPENCHAMBER_UPSTREAM_PORT=8100\s+fi/);
+      assert.match(ingress, /^export OPENCHAMBER_UPSTREAM_PORT=(?:3010|8101)$/m);
+      assert.match(ingress, /if \[ "\$\{HA_INGRESS_UI\}" != "openchamber" \]; then\s+export HA_INGRESS_UI="terminal"\s+export OPENCHAMBER_UPSTREAM_PORT=(?:8100|8101)\s+fi/);
       assert.match(ingress, /export OPENCHAMBER_ALLOW_ANY_REMOTE="false"/);
       assert.match(ingress, /export HA_INGRESS_PROXY_IP="172\.30\.32\.2"/);
       assert.match(terminal, /^exec ttyd \\/m);

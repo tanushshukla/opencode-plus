@@ -2,10 +2,15 @@
 /**
  * OpenCode Plus - image upload wrapper for ttyd / OpenChamber
  *
- * Dependency-free (node core only). Sits on the HA ingress port and:
+ * Dependency-free (node core only). Sits on loopback BEHIND the upstream
+ * ingress router (ha-openchamber-ingress, port 8099), which keeps facing the
+ * Supervisor directly so its remote-address-bound routes (/terminal/quit,
+ * /ha-mcp) keep working. This service:
  *  - serves index.html (header bar + iframe around the terminal)
  *  - accepts image uploads (raw body POST /upload) into /data/images
- *  - proxies /terminal/* (HTTP + WebSocket) to the upstream service
+ *  - proxies /terminal/* (HTTP + WebSocket) to the UI backend with the
+ *    prefix stripped, and every other unknown path untouched (the router
+ *    rewrites OpenChamber asset URLs to absolute ingress paths)
  *
  * Browser clipboards cannot deliver binary images into a web terminal, so the
  * page intercepts paste/drag-drop, uploads the image here, and hands the user
@@ -19,9 +24,10 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = parseInt(process.env.IMAGE_SERVICE_PORT || '8099', 10);
+const HOST = process.env.IMAGE_SERVICE_HOST || '127.0.0.1';
+const PORT = parseInt(process.env.IMAGE_SERVICE_PORT || '8101', 10);
 const UPSTREAM_HOST = '127.0.0.1';
-const UPSTREAM_PORT = parseInt(process.env.UPSTREAM_PORT || '8089', 10);
+const UPSTREAM_PORT = parseInt(process.env.UPSTREAM_PORT || '8100', 10);
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/data/images';
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB
 
@@ -101,10 +107,16 @@ function handleUpload(req, res) {
   req.on('error', () => { aborted = true; });
 }
 
-/** Strip the /terminal prefix so the upstream sees its native paths. */
+/** Strip the /terminal iframe prefix so the upstream sees its native paths. */
 function upstreamPath(url) {
+  if (!isTerminalPath(url)) return url || '/';
   const stripped = url.replace(/^\/terminal/, '');
-  return stripped === '' ? '/' : stripped;
+  return stripped === '' || stripped.startsWith('?') ? `/${stripped}` : stripped;
+}
+
+function isTerminalPath(url) {
+  const pathname = (url || '').split('?')[0];
+  return pathname === '/terminal' || pathname.startsWith('/terminal/');
 }
 
 function proxyHttp(req, res) {
@@ -134,10 +146,6 @@ function proxyHttp(req, res) {
 const server = http.createServer((req, res) => {
   const pathname = req.url.split('?')[0];
 
-  if (pathname === '/terminal' || pathname.startsWith('/terminal/')) {
-    proxyHttp(req, res);
-    return;
-  }
   if (req.method === 'POST' && pathname === '/upload') {
     handleUpload(req, res);
     return;
@@ -160,18 +168,13 @@ const server = http.createServer((req, res) => {
     res.end(INDEX_HTML);
     return;
   }
-  res.writeHead(404, { 'Content-Type': 'text/plain' });
-  res.end('Not found');
+  // Everything else (iframe /terminal/*, absolute asset/API paths the ingress
+  // router rewrote, ttyd token/ws endpoints) belongs to the UI backend.
+  proxyHttp(req, res);
 });
 
 // WebSocket proxy: replay the upgrade handshake to upstream and pipe both ways.
 server.on('upgrade', (req, socket, head) => {
-  const pathname = req.url.split('?')[0];
-  if (!(pathname === '/terminal' || pathname.startsWith('/terminal/'))) {
-    socket.destroy();
-    return;
-  }
-
   const upstream = net.connect(UPSTREAM_PORT, UPSTREAM_HOST, () => {
     let handshake = `${req.method} ${upstreamPath(req.url)} HTTP/1.1\r\n`;
     for (let i = 0; i < req.rawHeaders.length; i += 2) {
@@ -198,6 +201,6 @@ server.on('upgrade', (req, socket, head) => {
   socket.on('close', () => upstream.destroy());
 });
 
-server.listen(PORT, () => {
-  console.log(`[image-service] listening on :${PORT}, proxying to ${UPSTREAM_HOST}:${UPSTREAM_PORT}, uploads in ${UPLOAD_DIR}`);
+server.listen(PORT, HOST, () => {
+  console.log(`[image-service] listening on ${HOST}:${PORT}, proxying to ${UPSTREAM_HOST}:${UPSTREAM_PORT}, uploads in ${UPLOAD_DIR}`);
 });

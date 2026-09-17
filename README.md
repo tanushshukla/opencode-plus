@@ -38,7 +38,7 @@
 
 Go to **Settings** → **Add-ons** → **Add-on Store** → **⋮** → **Repositories**
 
-Add: `https://github.com/magnusoverli/opencode`
+Add: `https://github.com/tanushshukla/opencode-plus`
 </details>
 
 ### 2. Install the Add-on

@@ -244,7 +244,7 @@ test("router implementation parity and service graph", () => {
     const services = path.resolve(scripts(channel), "../../../etc/s6-overlay/s6-rc.d");
     const run = fs.readFileSync(path.join(services, "ha-openchamber-ingress/run"), "utf8");
     assert.match(run, /OPENCHAMBER_INGRESS_PORT=8099/);
-    assert.match(run, /OPENCHAMBER_UPSTREAM_PORT=8100/);
+    assert.match(run, /OPENCHAMBER_UPSTREAM_PORT=(?:8100|8101)/);
     assert.doesNotMatch(run, /sleep infinity|source \/data|curl/);
     assert.doesNotMatch(run, /HA_MCP_SETUP_ENABLED|ha_mcp_server_enabled/);
     assert.doesNotMatch(fs.readFileSync(path.join(scripts(channel), "openchamber-ingress-proxy.js"), "utf8"),

@@ -3,6 +3,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## 2.5.5.2
+
+- **Fix add-on crash loop on port 8099 (OpenCode+ overlay)** — upstream 2.5.5 moved the shared ingress router (`ha-openchamber-ingress`) onto port 8099 for both interface modes, colliding with the OpenCode+ image/voice wrapper that also listened there. The router now crashed repeatedly with `EADDRINUSE` and the wrapper showed "Terminal backend unavailable". The wrapper now runs on loopback port 8101 behind the router, which is patched to use it as its upstream; the wrapper proxies to ttyd (8100) or OpenChamber (3010) and forwards absolute paths so ingress-rewritten asset URLs and the quit control keep working.
+
 ## 2.5.5
 
 - **Quit OpenCode from the browser terminal (#113)** — added a compact top-right quit button using the existing ttyd page injection. It requests the managed terminal instance's graceful exit, returns to the shell, and leaves tab-disconnect persistence and independent servers intact. Exit requests are Ingress-only, bound to the displayed instance, and never escalate to a force-kill. Verified through real Home Assistant Core Ingress in the official devcontainer, including active MCP/LSP cleanup, saved-conversation recovery, shared terminals, customized bindings, and emulated mobile touch.

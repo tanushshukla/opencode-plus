@@ -237,8 +237,8 @@ LABEL \
     io.hass.version="${BUILD_VERSION}"
 
 # --- opencode-plus overlay ---
-# Image upload wrapper: serves the ingress UI on 8099, proxies the terminal
-# to 8089 (terminal mode) or the OpenChamber proxy to 8090 (OpenChamber mode),
+# Image upload wrapper: loopback 8101 behind the shared ingress router (8099),
+# wraps ttyd (8100, terminal mode) or OpenChamber (3010, OpenChamber mode) and
 # saves pasted images to /data/images. Kept as an append-only block so upstream
 # merges never conflict here.
 RUN chmod +x /opt/image-service/server.js \

@@ -1,8 +1,10 @@
 #!/command/with-contenv bashio
 # ==============================================================================
 # OpenCode Plus - Image Service (ingress proxy + image upload + voice UI)
-# Wraps the terminal/OpenChamber behind a header-bar UI on port 8099.
-# Proxies to ttyd on 8089 (terminal mode) or OC proxy on 8090 (OpenChamber).
+# Wraps the terminal/OpenChamber behind a header-bar UI. Sits on loopback
+# port 8101 BEHIND the shared ingress router (ha-openchamber-ingress, 8099),
+# which is patched by scripts/apply-plus.sh to use this service as its
+# upstream. Proxies to ttyd on 8100 (terminal mode) or OpenChamber on 3010.
 # ==============================================================================
 
 export HOME="/data"
@@ -17,15 +19,16 @@ mkdir -p /data/images
 
 INTERFACE_MODE=$(bashio::config 'interface_mode' 2>/dev/null || echo "terminal")
 if [ "${INTERFACE_MODE}" = "openchamber" ]; then
-    export UPSTREAM_PORT=8090
-    bashio::log.info "Image service: OpenChamber mode, proxying to 127.0.0.1:8090"
+    export UPSTREAM_PORT=3010
+    bashio::log.info "Image service: OpenChamber mode, proxying to 127.0.0.1:3010"
 else
-    export UPSTREAM_PORT=8089
-    bashio::log.info "Image service: terminal mode, proxying to 127.0.0.1:8089"
+    export UPSTREAM_PORT=8100
+    bashio::log.info "Image service: terminal mode, proxying to 127.0.0.1:8100"
 fi
 
-export IMAGE_SERVICE_PORT=8099
+export IMAGE_SERVICE_HOST=127.0.0.1
+export IMAGE_SERVICE_PORT=8101
 export UPLOAD_DIR=/data/images
 
-bashio::log.info "Starting image-service on port 8099 (HA ingress)..."
+bashio::log.info "Starting image-service on 127.0.0.1:8101 (behind the ingress router)..."
 exec node /opt/image-service/server.js

@@ -2,10 +2,10 @@
 # Shared ingress router. s6 owns each UI backend independently.
 export NODE_OPTIONS="--max-old-space-size=768"
 export HA_INGRESS_UI=$(bashio::config 'interface_mode' 2>/dev/null || echo "terminal")
-export OPENCHAMBER_UPSTREAM_PORT=3010
+export OPENCHAMBER_UPSTREAM_PORT=8101
 if [ "${HA_INGRESS_UI}" != "openchamber" ]; then
     export HA_INGRESS_UI="terminal"
-    export OPENCHAMBER_UPSTREAM_PORT=8100
+    export OPENCHAMBER_UPSTREAM_PORT=8101
 fi
 export OPENCHAMBER_ALLOW_ANY_REMOTE="false"
 export HA_INGRESS_PROXY_IP="172.30.32.2"
