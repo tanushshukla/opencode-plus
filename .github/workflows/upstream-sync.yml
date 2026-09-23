@@ -24,8 +24,13 @@ jobs:
     env:
       UPSTREAM: https://github.com/magnusoverli/opencode.git
       # Files whose conflicts are resolved by taking upstream's version and
-      # re-running scripts/apply-plus.sh.
+      # re-running scripts/apply-plus.sh. .gitignore and the stable CHANGELOG
+      # conflict on nearly every upstream release (both sides append/prepend);
+      # their fork deltas are restored from scripts/apply-plus.sh (changelog
+      # entries live in the fork-only ha_opencode/CHANGELOG-PLUS.md).
       MANAGED_FILES: |
+        .gitignore
+        ha_opencode/CHANGELOG.md
         ha_opencode/config.yaml
         ha_opencode_beta/config.yaml
         ha_opencode/Dockerfile
@@ -151,6 +156,7 @@ jobs:
         if: steps.check.outputs.new == 'true' && steps.merge.outputs.result == 'clean'
         run: |
           bash scripts/apply-plus.sh
+          node --test scripts/apply-plus.test.mjs
           git add -A
 
           version="$(sed -n 's/^version: *"\{0,1\}\([0-9][0-9.]*\)"\{0,1\}.*/\1/p' ha_opencode/config.yaml | head -1)"

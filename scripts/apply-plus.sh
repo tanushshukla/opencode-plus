@@ -201,6 +201,70 @@ if grep -q '^maintainer: magnusoverli$' "$REPOYAML"; then
   changed=1
 fi
 
+# --- CHANGELOG: re-inject fork overlay entries ---------------------------------
+# Upstream prepends release sections to ha_opencode/CHANGELOG.md too, so this
+# file conflicts on nearly every sync. The workflow resolves conflicts by
+# taking upstream's version; the fork's overlay entries live in the fork-only
+# fragment ha_opencode/CHANGELOG-PLUS.md (entries only, newest first — never
+# edit ha_opencode/CHANGELOG.md by hand) and are re-injected here between HTML
+# comment markers (invisible in rendered Markdown, ignored by the release
+# notes extractor, which only looks for "## <version>" headings).
+PLUS_CHANGELOG="$ROOT/ha_opencode/CHANGELOG-PLUS.md"
+BEGIN_MARK='<!-- opencode-plus overlay: begin -->'
+END_MARK='<!-- opencode-plus overlay: end -->'
+fragfile="$(mktemp)"
+tmp="$(mktemp)"
+trap 'rm -f "$fragfile" "$tmp"' EXIT
+awk '
+  { lines[NR] = $0 }
+  END {
+    last = NR
+    while (last > 0 && lines[last] ~ /^[[:space:]]*$/) last--
+    start = 1
+    while (start <= last && lines[start] ~ /^[[:space:]]*$/) start++
+    for (i = start; i <= last; i++) print lines[i]
+  }
+' "$PLUS_CHANGELOG" > "$fragfile"
+if [ ! -s "$fragfile" ]; then
+  echo "ERROR: $PLUS_CHANGELOG has no content; refusing to inject an empty block" >&2
+  exit 1
+fi
+if awk -v begin="$BEGIN_MARK" -v end="$END_MARK" -v frag="$fragfile" '
+  BEGIN { while ((getline line < frag) > 0) fraglines[++n] = line; close(frag) }
+  $0 == begin { print; for (i = 1; i <= n; i++) print fraglines[i]; print end; skip = 1; replaced = 1; next }
+  skip && $0 == end { skip = 0; next }
+  skip { next }
+  { print }
+  END { exit replaced ? 0 : 3 }
+' "$CHANGELOG" > "$tmp"; then
+  if ! cmp -s "$tmp" "$CHANGELOG"; then
+    mv "$tmp" "$CHANGELOG"
+    changed=1
+  else
+    rm -f "$tmp"
+  fi
+else
+  awk -v begin="$BEGIN_MARK" -v end="$END_MARK" -v frag="$fragfile" '
+    BEGIN { while ((getline line < frag) > 0) fraglines[++n] = line; close(frag) }
+    !done && $0 == "## [Unreleased]" {
+      print; print ""; print begin
+      for (i = 1; i <= n; i++) print fraglines[i]
+      print end; done = 1; next
+    }
+    { print }
+  ' "$CHANGELOG" > "$tmp"
+  mv "$tmp" "$CHANGELOG"
+  changed=1
+fi
+
+# --- .gitignore: re-add fork-only ignore rules ---------------------------------
+# Upstream appends to .gitignore as well; after taking their side the fork's
+# own rules are restored here.
+if ! grep -qxF '.worktrees/' "$ROOT/.gitignore"; then
+  printf '\n# Isolated agent worktrees (opencode-plus overlay)\n.worktrees/\n' >> "$ROOT/.gitignore"
+  changed=1
+fi
+
 if [ "$changed" -eq 1 ]; then
   echo "apply-plus: overlay applied, version $newver"
 else
