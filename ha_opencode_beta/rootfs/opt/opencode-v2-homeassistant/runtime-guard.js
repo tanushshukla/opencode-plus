@@ -1,4 +1,4 @@
-import { Plugin } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 import { scrubParentEnvironment, scrubShellEnvironment } from "./plugin.js";
 
 export const RUNTIME_GUARD_PLUGIN_ID = "homeassistant.runtime-guard";

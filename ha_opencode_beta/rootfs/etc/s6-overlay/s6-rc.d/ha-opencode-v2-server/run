@@ -20,6 +20,9 @@ if [ ! -f "${V2_RUNTIME_ROOT}/ready" ] \
     || [ -L "${V2_RUNTIME_ROOT}/ready" ] \
     || [ ! -f "${V2_RUNTIME_ROOT}/managed.json" ] \
     || [ -L "${V2_RUNTIME_ROOT}/managed.json" ] \
+    || [ ! -f "${V2_RUNTIME_ROOT}/provider-env" ] \
+    || [ -L "${V2_RUNTIME_ROOT}/provider-env" ] \
+    || [ "$(stat -c '%u:%g:%a:%h' "${V2_RUNTIME_ROOT}/provider-env" 2>/dev/null || true)" != "0:0:600:1" ] \
     || [ ! -f "${V2_RUNTIME_ROOT}/server-password" ] \
     || [ -L "${V2_RUNTIME_ROOT}/server-password" ]; then
     bashio::log.info "OpenCode V2 server is inactive because no secured runtime is ready"

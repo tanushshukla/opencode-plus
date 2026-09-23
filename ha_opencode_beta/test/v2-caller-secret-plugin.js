@@ -1,6 +1,6 @@
 // Loaded only by the in-image boundary fixture, never installed as a user plugin.
 import plugin from "/opt/opencode-v2-homeassistant/plugin.js";
-import { createPluginSources } from "/opt/opencode-v2-homeassistant/node_modules/@opencode-ai/plugin/dist/source.js";
+import { createPluginSources } from "/opt/opencode-v2-homeassistant/node_modules/@opencode/plugin/dist/source.js";
 
 export default {
   ...plugin,

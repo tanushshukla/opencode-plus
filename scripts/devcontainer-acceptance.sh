@@ -5,7 +5,7 @@ set -Eeuo pipefail
 # Choose ha_mcp_server_enabled before running; never change options or provision
 # clients here. Run each channel once disabled and once enabled. Browser OAuth
 # consent and destructive revoke/reprovision
-# remain manual checks. Beta acceptance requires V2; beta V1 is a manual gap.
+# remain manual checks. Beta acceptance exercises the single managed V2 runtime.
 
 app=${1:-}
 case "${app}" in
@@ -63,7 +63,7 @@ wait_for_v2_tui() {
     local current_pid
     for _attempt in $(seq 1 100); do
         current_pid=$(docker exec "${container}" pgrep -f \
-            '^/usr/local/bin/opencode2 --server http://127.0.0.1:4100$' 2>/dev/null || true)
+            '^/usr/local/libexec/opencode-v2 --server http://127.0.0.1:4100$' 2>/dev/null || true)
         if [[ "${current_pid}" =~ ^[0-9]+$ ]]; then
             printf '%s\n' "${current_pid}"
             return 0
@@ -117,8 +117,8 @@ if [ "${app}" = ha_opencode_beta ]; then
         touch /run/opencode-v2/workspace/.opencode >/dev/null 2>&1; then
         fail "UID 60001 can modify the root-owned V2 project workspace"
     fi
-    [ "$(jq -r '.data.options.terminal_runtime' <<<"${info}")" = v2 ] \
-        || fail "the beta terminal runtime is not V2"
+    docker exec "${container}" test ! -e /usr/local/lib/node_modules/opencode-ai \
+        || fail "the beta image still contains a V1 runtime"
     [ "$(docker exec "${container}" cat /run/opencode-v2-homeassistant.ready)" = "/homeassistant" ] \
         || fail "the V2 workspace readiness marker is invalid"
 
@@ -144,6 +144,7 @@ if [ "${app}" = ha_opencode_beta ]; then
         ha-opencode-v2-mcp-proxy
         ha-opencode-v2-mcp-sidecar
         ha-opencode-v2-server
+        ha-opencode-v2-lsp
     )
 fi
 for service in "${services[@]}"; do
@@ -371,7 +372,7 @@ if [ "${app}" = ha_opencode_beta ]; then
         $'60001:60001:700\n60001:60001:700\n60001:60001:700\n60001:60001:700' ] \
         || fail "the V2 TUI writable roots are not confined to UID 60001"
     if docker exec "${container}" pgrep -f \
-        '^/usr/local/bin/opencode2 --server http://127.0.0.1:4100$' >/dev/null 2>&1; then
+        '^/usr/local/libexec/opencode-v2 --server http://127.0.0.1:4100$' >/dev/null 2>&1; then
         fail "a V2 TUI was already running before the attachment test"
     fi
     docker exec -dt "${container}" /usr/local/bin/opencode-v2-tui-launch /run/opencode-v2 >/dev/null

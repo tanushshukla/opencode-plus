@@ -57,6 +57,10 @@ export class YamlContextAnalyzer {
 
     // Find parent keys by analyzing indentation
     let currentIndent = lineBeforeCursor.match(/^(\s*)/)?.[1].length || 0;
+    // YAML permits indentless sequences (`triggers:\n- trigger: ...`). The
+    // entry's mapping begins after its dash, so its parent can share the dash's
+    // indentation without being a sibling of the mapping value being completed.
+    if (context.inList) currentIndent += 2;
     
     for (let i = position.line - 1; i >= 0; i--) {
       const prevLine = lines[i];
@@ -77,23 +81,25 @@ export class YamlContextAnalyzer {
     if (context.parentKeys.includes("trigger") || context.parentKeys.includes("triggers")) {
       // Find trigger platform
       for (let i = position.line; i >= 0; i--) {
-        const platformMatch = lines[i].match(/platform:\s*(\w+)/);
+        const platformMatch = lines[i].match(/^\s*(?:-\s*)?(?:platform|trigger):\s*(\w+)/);
         if (platformMatch) {
           context.triggerType = platformMatch[1];
           break;
         }
+        if (/^\s*-\s/.test(lines[i])) break;
       }
     }
 
     if (context.parentKeys.includes("action") || context.parentKeys.includes("actions")) {
       // We're in an action block
       for (let i = position.line; i >= 0; i--) {
-        const serviceMatch = lines[i].match(/service:\s*([\w.]+)/);
+        const serviceMatch = lines[i].match(/^\s*(?:-\s*)?(?:service|action):\s*([\w.]+)/);
         if (serviceMatch) {
           const [domain] = serviceMatch[1].split(".");
           context.domain = domain;
           break;
         }
+        if (/^\s*-\s/.test(lines[i])) break;
       }
     }
 

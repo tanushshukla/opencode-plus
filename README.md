@@ -293,7 +293,7 @@ experimental work in `ha_opencode_beta/`; touch `ha_opencode/` only for changes
 that should reach stable users right away.
 
 Both add-ons can be installed side by side — they keep separate decision notes
-and separate storage. Full details in [RELEASING.md](RELEASING.md).
+and separate storage.
 
 ### Home Assistant development
 

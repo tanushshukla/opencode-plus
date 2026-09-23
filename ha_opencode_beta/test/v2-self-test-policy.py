@@ -16,7 +16,7 @@ ADDON = Path(__file__).resolve().parents[1]
 with patch.dict(sys.modules, {"resource": types.ModuleType("resource")} if os.name == "nt" else {}):
     POLICY = runpy.run_path(str(ADDON / "rootfs/usr/local/bin/opencode-v2-self-test"))
 EXERCISE = POLICY["exercise_policy"]
-VERSION = "0.0.0-beta-19242"
+VERSION = "2.0.13"
 AGENT = POLICY["READ_ONLY_AGENT"]
 
 
@@ -28,20 +28,20 @@ class PolicyTest(unittest.TestCase):
             "--plugin-enabled", "false", "--native-mcp-enabled", "false",
         ], text=True))
 
-    def exercise(self, plugins, mcp=False):
+    def exercise(self, plugins, mcp=False, context=True):
         requests = []
 
         class Client:
             def request(client, path, **kwargs):
                 requests.append((path, kwargs))
                 if kwargs:
-                    self.assertEqual((path, kwargs), ("/api/health", {
+                    self.assertEqual((path, kwargs), ("/api/info", {
                         "expected": 401, "authenticated": False, "decode": False,
                     }))
                     return None
                 return {
-                    "/api/health": {"healthy": True, "version": VERSION},
-                    "/api/plugin": {"data": plugins},
+                    "/api/info": {"version": VERSION},
+                    "/api/plugin": {"data": plugins + ([{"id": "homeassistant.context", "state": {"status": "active"}}] if context else [])},
                     "/api/mcp": {"data": [{"name": "homeassistant", "status": {"status": "connected"}}] if mcp else []},
                     f"/api/agent/{AGENT}": {"data": {"id": AGENT, **self.config["agents"][AGENT]}},
                 }[path]
@@ -60,6 +60,10 @@ class PolicyTest(unittest.TestCase):
             {"id": name, "state": {"status": "active"}}
             for name in ("homeassistant.runtime-guard", "homeassistant.mcp")
         ], mcp=True)
+
+    def test_missing_context_plugin_fails_closed(self):
+        with self.assertRaisesRegex(POLICY["SelfTestError"], "timed out waiting"):
+            self.exercise([{"id": "homeassistant.runtime-guard", "state": {"status": "active"}}], context=False)
 
     def test_invalid_or_legacy_state_fails_closed(self):
         for state in (None, "active", [], {}, {"type": "active"}, {"status": "inactive"}):

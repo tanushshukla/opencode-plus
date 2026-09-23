@@ -3,6 +3,7 @@ const http = require("http");
 const net = require("net");
 const zlib = require("zlib");
 const { routeHaMcp } = require("./ha-mcp-ingress.js");
+const { validEditorIngressOrigin } = require("./editor-ingress-origin.js");
 const TERMINAL = process.env.HA_INGRESS_UI === "terminal";
 
 const LISTEN_HOST = process.env.OPENCHAMBER_INGRESS_HOST || "0.0.0.0";
@@ -671,8 +672,20 @@ function proxyRequest(req, res) {
 function forwardRequest(req, res, { ingressPath, upstreamPath, body = null, oauthAuthorizeProviderID = "" }) {
   if (!canWriteResponse(res)) return;
   const remoteAddress = normalizeRemoteAddress(req.socket.remoteAddress || "");
+  const editorRequest = /^\/api\/ha-editor-lsp\/(?:diagnostics|completions)$/.test(upstreamPath.split("?", 1)[0]);
+  if (editorRequest && (!isAllowedRemote(remoteAddress) ||
+      !validEditorIngressOrigin(req.headers, ingressPath, ALLOW_ANY_REMOTE))) {
+    res.writeHead(403, noStoreHeaders({ "content-type": "application/json" }));
+    res.end(JSON.stringify({ error: "Editor language service request denied" }));
+    return;
+  }
   const headers = { ...req.headers };
   headers.host = `${UPSTREAM_HOST}:${UPSTREAM_PORT}`;
+  // TLS terminates before the app. Having checked the original browser authority
+  // at the trusted Ingress boundary, normalize this read-only route's Origin to
+  // the internal hop. The backend keeps its strict same-origin/auth checks and
+  // never has to trust caller-supplied X-Forwarded-* claims or a bypass header.
+  if (editorRequest) headers.origin = `http://${headers.host}`;
   headers["accept-encoding"] = "identity";
   headers["x-forwarded-host"] = req.headers["x-forwarded-host"] || req.headers.host || "";
   headers["x-forwarded-proto"] = forwardedProto(req);

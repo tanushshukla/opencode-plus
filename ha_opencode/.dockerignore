@@ -5,6 +5,7 @@
 # Documentation (not needed in image)
 *.md
 !rootfs/**/*.md
+rootfs/opt/*/README.md
 
 # Development files
 .editorconfig

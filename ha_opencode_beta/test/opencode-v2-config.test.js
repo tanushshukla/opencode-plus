@@ -12,6 +12,7 @@ import {
   DEFAULT_NATIVE_MCP_ENDPOINT,
   DEFAULT_PLUGIN_PACKAGE,
   DEFAULT_RUNTIME_GUARD_PACKAGE,
+  DEFAULT_CONTEXT_PACKAGE,
   DEFAULT_WORKSPACE,
   READ_ONLY_AGENT_ID,
   READ_ONLY_AGENT_SYSTEM,
@@ -58,7 +59,7 @@ describe("OpenCode V2 managed configuration", () => {
 
     assert.equal(config.snapshots, false);
     assert.equal(config.share, "disabled");
-    assert.deepEqual(config.plugins, [{ package: DEFAULT_RUNTIME_GUARD_PACKAGE }]);
+    assert.deepEqual(config.plugins.map(({ package: name }) => name), [DEFAULT_RUNTIME_GUARD_PACKAGE, DEFAULT_CONTEXT_PACKAGE]);
     assert.deepEqual(config.permissions.slice(0, 3), [
       { action: "read", resource: "*", effect: "allow" },
       { action: "edit", resource: "*", effect: "ask" },
@@ -84,8 +85,8 @@ describe("OpenCode V2 managed configuration", () => {
     const disabled = buildManagedConfig();
     const enabled = buildManagedConfig({ pluginEnabled: true });
 
-    assert.deepEqual(disabled.plugins, [{ package: DEFAULT_RUNTIME_GUARD_PACKAGE }]);
-    assert.deepEqual(enabled.plugins, [
+    assert.deepEqual(disabled.plugins.map(({ package: name }) => name), [DEFAULT_RUNTIME_GUARD_PACKAGE, DEFAULT_CONTEXT_PACKAGE]);
+    assert.deepEqual(enabled.plugins.filter(({ package: name }) => name !== DEFAULT_CONTEXT_PACKAGE), [
       { package: DEFAULT_RUNTIME_GUARD_PACKAGE },
       {
         package: DEFAULT_PLUGIN_PACKAGE,
@@ -172,7 +173,8 @@ describe("OpenCode V2 managed configuration", () => {
       userHooks: true,
     });
 
-    assert.deepEqual(config.instructions, [
+    assert.equal(config.instructions, undefined);
+    assert.deepEqual(config.plugins.find(({ package: name }) => name === DEFAULT_CONTEXT_PACKAGE).options.files, [
       WORKSPACE_INSTRUCTIONS,
       "/opt/ha-mcp-server/FOCUS_MODE.md",
       "/opt/ha-mcp-server/MCP_CORE_INSTRUCTIONS.md",

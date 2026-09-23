@@ -1,4 +1,4 @@
-// Skills and agents are plain markdown that OpenCode discovers by convention.
+// Skills are plain markdown. Native V2 agent policies are tested separately.
 // Nothing validates their frontmatter until a session tries to load them, and a
 // skill with a malformed name is simply absent — no error, no log line, just a
 // model that never gets the guidance. So validate the shipped files here.
@@ -15,7 +15,6 @@ const ADDON_DIR = path.join(__dirname, "..");
 const CHANNEL = path.basename(ADDON_DIR);
 const MCP_DIR = path.join(ADDON_DIR, "rootfs", "opt", "ha-mcp-server");
 const SKILLS_DIR = path.join(MCP_DIR, "skills");
-const AGENTS_DIR = path.join(MCP_DIR, "agents");
 
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -120,9 +119,8 @@ describe(`${CHANNEL} skills`, () => {
     }
   });
 
-  it("documents the ESPHome troubleshooting and migration tools", () => {
+  it("documents the ESPHome troubleshooting and migration tools in shipped guidance", () => {
     const files = [
-      path.join(MCP_DIR, "README.md"),
       path.join(MCP_DIR, "MCP_PROFILE_COMPACT.md"),
       path.join(MCP_DIR, "MCP_PROFILE_CONFIGURATION.md"),
       path.join(MCP_DIR, "MCP_PROFILE_FULL.md"),
@@ -132,59 +130,5 @@ describe(`${CHANNEL} skills`, () => {
     const combined = files.map((file) => fs.readFileSync(file, "utf8")).join("\n");
     assert.ok(combined.includes("esphome_troubleshoot"));
     assert.ok(combined.includes("esphome_config_migrate"));
-  });
-});
-
-describe(`${CHANNEL} read-only agent`, () => {
-  const file = path.join(AGENTS_DIR, "home-assistant-read-only.md");
-  const contents = fs.readFileSync(file, "utf8");
-  const { fields, block, body } = frontmatter(contents);
-
-  it("is a primary agent with a description", () => {
-    assert.equal(fields.mode, "primary");
-    assert.equal(typeof fields.description, "string");
-    assert.ok(fields.description.length > 40);
-  });
-
-  it("denies edit, bash, task and lsp", () => {
-    const permission = fields.permission?.__raw ?? "";
-    assert.match(permission, /^\s{2}edit:\s*deny$/m);
-    assert.match(permission, /^\s{2}task:\s*deny$/m);
-    assert.match(permission, /^\s{2}lsp:\s*deny$/m);
-    assert.match(permission, /^\s{2}bash:\s*$/m);
-    assert.match(permission, /^\s{4}"\*":\s*deny$/m);
-  });
-
-  it("denies sensitive reads regardless of the add-on's file-access setting", () => {
-    const permission = fields.permission?.__raw ?? "";
-    for (const pattern of [
-      '"\\*secrets.yaml": deny',
-      '"\\*.storage/\\*": deny',
-      '"\\*.cloud/\\*": deny',
-      '"\\*ssl/\\*": deny',
-      '"\\*.key": deny',
-      '"\\*.pem": deny',
-    ]) {
-      assert.match(permission, new RegExp(pattern.replace(/ /g, "\\s*")));
-    }
-    assert.match(permission, /"\*":\s*allow/);
-  });
-
-  it("removes the mutating tools outright, not only by permission", () => {
-    const tools = fields.tools?.__raw ?? "";
-    for (const tool of ["bash", "edit", "write", "patch", "task"]) {
-      assert.match(tools, new RegExp(`^\\s{2}${tool}:\\s*false$`, "m"), `${tool} is still enabled`);
-    }
-  });
-
-  it("tells the session that the compact profile and native MCP are in force", () => {
-    assert.match(body, /compact/);
-    assert.match(body, /native MCP/i);
-    assert.match(body, /home-assistant-troubleshooting/);
-  });
-
-  it("never claims it can change anything", () => {
-    assert.ok(!/\bwrite_config_safe\(/.test(body));
-    assert.match(block, /mode: primary/);
   });
 });

@@ -22,5 +22,16 @@ npm-debug.log*
 # Build artifacts
 *.tgz
 
+# Local maintainer guidance and implementation plans
+/AGENTS.md
+/RELEASING.md
+/*_PLAN.md
+/plans/
+/docs/internal/
+
+# Component implementation docs and manual acceptance notes
+/ha_opencode*/rootfs/opt/*/README.md
+/ha_opencode*/test/*-acceptance.md
+
 # Isolated agent worktrees
 .worktrees/

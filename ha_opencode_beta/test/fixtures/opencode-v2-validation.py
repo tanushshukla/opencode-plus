@@ -143,6 +143,7 @@ def add_target_session(connection, source, *, project_id=None, **projection):
         "tokens_cache_write": 0,
         "revert": None,
         "time_compacting": None,
+        "permission": json.dumps([{"action": "*", "resource": "*", "effect": "deny"}]),
     }
     value.update(projection)
     if isinstance(value["model"], dict):

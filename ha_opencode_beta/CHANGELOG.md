@@ -2,7 +2,57 @@
 
 ## [Unreleased]
 
-- **Reliable Home Assistant MCP plugin reactivation (#112)** — retain the one-time broker credential in the non-dumpable V2 server's native bootstrap library instead of a consumable FD 3 pipe. Repeated setup, failed-registration recovery, and local module reloads acquire a fresh in-process copy without reading or closing unrelated runtime descriptors. The broker's PID/start-time checks and one-shot delivery remain intact; temporary copy buffers are wiped and the native getter rejects forked or unseeded processes.
+## 3.0.0b20
+
+- Fixed CI's isolated editor-test dependencies, channel-specific proxy parity checks and a process-exit race in cancellation verification.
+- Request the pinned OpenChamber source over HTTP/1.1 during image builds, retaining revision and TLS verification.
+- Added CI gates for editor lifecycle/type checks and the native provider-credential loader instead of silently skipping those boundaries.
+- Added bounded Home Assistant YAML diagnostics and completion for editable OpenChamber drafts through Ingress, with stale-result cancellation and no new file-write operations.
+- Added validated native custom-provider configuration and PPQ model routing, with filtered API-key environment support and explicit unsupported-setting errors.
+- Clarified that desktop-browser tools need an OpenCode desktop attachment, separate from OpenChamber Ingress and HA screenshot support.
+- Confined YAML include diagnostics and definition lookups to non-sensitive, non-symlinked Home Assistant paths; secret-file locations are no longer probed.
+- Removed unused beta-only V1 permission helpers and standalone smoke probes; retained the managed V2 checks and all user data.
+- Corrected OpenChamber's OpenCode update notice in all 12 locales to direct users to Home Assistant app updates without implying that an upstream release is an available app update.
+- Documented Supervisor-only component updates as the 3.0 release policy, without adding a custom updater.
+- Verified rendered editor completion/diagnostic refresh and update-notice dismissal through real Home Assistant Ingress on amd64. Authenticated LAN access, full provider compatibility, ARM/HAOS runtime qualification and the stopped-worker acceptance harness remain open.
+
+## 3.0.0b19
+
+- Fixed OpenChamber session creation and other JSON POST requests failing with HTTP 400 through Home Assistant Ingress. The preview now removes incoming chunked framing before forwarding a re-encoded fixed-length body, including empty JSON objects.
+- Added actual-preview HTTP framing regression coverage and real Core Ingress session creation/read/delete checks. Verified a first message and real free-model reply through the OpenChamber UI; the browser scenario remains opt-in for repeat testing.
+- Documented verified free-model Build chat and the free-tier provider's rejection of the custom read-only agent as an accepted compatibility limitation.
+
+## 3.0.0b18
+
+- Removed the V1 runtime and runtime selector. `opencode` and its `opencode2` compatibility spelling now use the same managed V2 server; status/API diagnostics cannot automatically start a separate daemon.
+- Added a credential-isolated Home Assistant YAML language-server bridge with diagnostics, completion, hover and definition tools. Fixed modern `triggers:` / `trigger:` completion, including indentless YAML lists.
+- Enabled pinned Prettier formatting for approved V2 YAML writes and connected V2 skill discovery to persistent, user-editable skill copies.
+- Replaced V1 read-only/configuration helpers with managed V2 clients. Successful forward upgrades now discard obsolete generations instead of retaining rollback state; unidentified state is preserved and reported rather than reset.
+- Replaced the V1 OpenChamber package with the independently pinned V2 web preview `2.0.0-preview.8`, built from immutable source and its lockfile. It attaches to the app-owned backend with process-private authentication; Ingress browser startup, shared history/policy and independent UI stop/start passed amd64 devcontainer acceptance.
+- Full preview streaming/provider/OAuth qualification, authenticated LAN access, native custom-provider/PPQ configuration and default-free-model read-only compatibility remain under development.
+
+## 3.0.0b17
+
+- Fixed timed-out or cancelled CLI tools leaving subprocesses running; process-tree tests now check actual termination, including descendants that ignore graceful shutdown.
+- Fixed complete compact history omitting attribute-only updates and repeated values. Full recorder rows are retrieved before attributes are removed locally.
+- Added bounded automatic V2 context delivery for home briefing, decision notes and configured instruction sources, including tool continuations and plugin reloads, independently of MCP enablement.
+- Corrected V1 rollback smoke checks for inactive s6 service entries and labeled retained V1 component checks separately from active V2 integration evidence.
+- OpenCode remains pinned to 2.0.13. V2 LSP/formatting, OpenChamber V2 integration, and the default free model's read-only-agent compatibility remain under development.
+
+## 3.0.0b16
+
+- Fixed `target_version_mismatch` startup failures by upgrading a private copy of existing V2 state, preserving conversations, sign-ins, and session permissions while retaining the original generation for recovery.
+- Updated the beta app to official OpenCode 2.0.13, including its renamed packages and authenticated readiness endpoint.
+- Corrected startup diagnostics to explain when V2 is inactive and V1 rollback must be selected explicitly.
+
+## 3.0.0b15
+
+- Fixed screenshot authentication and now report login, navigation, or frontend-readiness failures instead of successful dashboard captures (#121).
+- Devcontainer builds now tolerate Windows line endings in build metadata.
+
+## 3.0.0b14
+
+- **Reliable Home Assistant MCP plugin reactivation (#112)** — fixed intermittent `EAGAIN: resource temporarily unavailable, read` errors that could leave Home Assistant tools unavailable after plugin reloads. The V2 server now retains its MCP credential safely across reloads instead of rereading a one-use file descriptor.
 
 - **Clearer automation editing workflow (#115)** — aligned agent guidance around safe YAML writes, approved domain reloads, and read-only load verification. Successful safe writes now give file-specific apply guidance and distinguish saved changes from active configuration; reduced tool profiles explicitly leave reload pending.
 
@@ -167,7 +217,7 @@ The runtime this add-on runs is now a decision someone made, not whatever npm ha
 
   Everything else is the same session you already have — same provider, same model, same view of your configuration. And your normal `opencode` session is untouched: there is no new option, no new default, nothing to turn back on. Investigate in `ha-readonly`, exit, and use OpenCode to make the change you decided on.
 
-- **Checks that run before a release rather than during one** — the behavioural tests used to run only when a tag built an image, which is after the change is already on `main`. A pull-request workflow now runs the MCP server suite, the YAML language server suite, and a new set of contract tests covering the runtime pin, PATH precedence, the generated OpenCode configuration, skill and agent frontmatter, managed deployment, and the read-only overlay. `opencode-smoke-test` in the terminal verifies the same chain inside a real image — runtime version, MCP and LSP startup, the Ingress-patched OpenChamber bundle, deployed skills, and the read-only overlay — and a weekly workflow reports new upstream OpenCode releases without touching the pin. Bumping the certified runtime now has a checklist (`OPENCODE_UPGRADE_CHECKLIST.md`) rather than being a one-line edit.
+- **Checks that run before a release rather than during one** — the behavioural tests used to run only when a tag built an image, which is after the change is already on `main`. A pull-request workflow now runs the MCP server suite, the YAML language server suite, and a new set of contract tests covering the runtime pin, PATH precedence, the generated OpenCode configuration, skill and agent frontmatter, managed deployment, and the read-only overlay. `opencode-smoke-test` in the terminal verifies the same chain inside a real image — runtime version, MCP and LSP startup, the Ingress-patched OpenChamber bundle, deployed skills, and the read-only overlay — and a weekly workflow reports new upstream OpenCode releases without touching the pin. Bumping the certified runtime now has a documented certification checklist rather than being a one-line edit.
 
 - **OpenCode V2 readiness tracking** — maintainers now have a root-level compatibility checklist covering the upstream beta's migration work, current blockers, and release gates.
 - **OpenCode V1 improvement roadmap** — maintainers now have a Home Assistant-focused plan for a certified runtime, on-demand skills, read-only diagnostics, and regression coverage.

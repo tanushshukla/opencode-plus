@@ -102,6 +102,7 @@ def read_runtime_material(runtime_root, reporter):
         for marker, label in (
             ("mcp-enabled", "MCP"),
             ("native-mcp-enabled", "native MCP"),
+            ("lsp-enabled", "LSP"),
         ):
             marker_fd = os.open(marker, file_flags, dir_fd=root_fd)
             try:
@@ -136,7 +137,7 @@ def read_runtime_material(runtime_root, reporter):
             password[index] = 0
         raise SelfTestError("V2 server password has an invalid length")
     reporter.ok("server password is a bounded root-only file opened without following symlinks")
-    return password, enabled["mcp-enabled"], enabled["native-mcp-enabled"]
+    return password, enabled["mcp-enabled"], enabled["native-mcp-enabled"], enabled["lsp-enabled"]
 
 
 class ApiClient:
@@ -236,16 +237,16 @@ def wait_for(description, probe):
     raise SelfTestError(f"timed out waiting for {description}{detail}")
 
 
-def exercise_policy(client, expected_version, mcp_enabled, native_mcp_enabled, reporter):
+def exercise_policy(client, expected_version, mcp_enabled, native_mcp_enabled, reporter, lsp_enabled=False):
     def authentication_boundary():
-        client.request("/api/health", expected=401, authenticated=False, decode=False)
+        client.request("/api/info", expected=401, authenticated=False, decode=False)
         return True
 
     wait_for("V2 authentication boundary", authentication_boundary)
     reporter.ok("V2 server rejects unauthenticated requests")
 
-    health = wait_for("authenticated V2 health", lambda: client.request("/api/health"))
-    if not isinstance(health, dict) or health.get("healthy") is not True or health.get("version") != expected_version:
+    health = wait_for("authenticated V2 info", lambda: client.request("/api/info"))
+    if not isinstance(health, dict) or health.get("version") != expected_version:
         raise SelfTestError("authenticated V2 health response does not match the certified version")
     reporter.ok(f"authenticated V2 health reports {expected_version}")
 
@@ -260,14 +261,22 @@ def exercise_policy(client, expected_version, mcp_enabled, native_mcp_enabled, r
             and isinstance(plugin.get("state"), dict)
             and plugin["state"].get("status") == "active"
         }
-        if "homeassistant.runtime-guard" not in active:
+        if not {"homeassistant.runtime-guard", "homeassistant.context"}.issubset(active):
             return None
         if mcp_enabled and "homeassistant.mcp" not in active:
+            return None
+        if lsp_enabled and "homeassistant.lsp" not in active:
             return None
         return active
 
     active_plugins = wait_for("Home Assistant V2 runtime guard", active_plugin_ids)
-    reporter.ok("Home Assistant V2 runtime guard is active")
+    reporter.ok("Home Assistant V2 runtime guard and context plugin are active")
+    if lsp_enabled:
+        reporter.ok("Home Assistant V2 LSP bridge plugin is active")
+    elif "homeassistant.lsp" in active_plugins:
+        raise SelfTestError("Home Assistant V2 LSP bridge is active while disabled by configuration")
+    else:
+        reporter.skip("Home Assistant V2 LSP bridge is disabled by configuration")
     if mcp_enabled:
         reporter.ok("Home Assistant V2 MCP plugin is active")
     elif "homeassistant.mcp" in active_plugins:
@@ -375,7 +384,7 @@ def main():
         harden_process(reporter)
         runtime_root = os.environ.get("OPENCODE_V2_SELF_TEST_RUNTIME_ROOT", DEFAULT_RUNTIME_ROOT)
         base_url = validate_base_url(os.environ.get("OPENCODE_V2_SELF_TEST_BASE_URL", DEFAULT_BASE_URL))
-        password, mcp_enabled, native_mcp_enabled = read_runtime_material(runtime_root, reporter)
+        password, mcp_enabled, native_mcp_enabled, lsp_enabled = read_runtime_material(runtime_root, reporter)
         with open("/usr/local/share/opencode-v2-certified-version", "r", encoding="utf-8") as version_file:
             expected_version = version_file.read(128).strip()
         if not expected_version:
@@ -386,6 +395,7 @@ def main():
             mcp_enabled,
             native_mcp_enabled,
             reporter,
+            lsp_enabled=lsp_enabled,
         )
     except (SelfTestError, OSError, KeyboardInterrupt) as error:
         print(f"V2 self-test failed: {error}", file=sys.stderr)

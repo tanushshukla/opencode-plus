@@ -1,7 +1,7 @@
 ---
 name: "OpenCode+ Beta"
 description: "Beta channel for OpenCode - AI coding agent for Home Assistant. May contain experimental features."
-version: "3.0.0b13"
+version: "3.0.0b20"
 slug: "ha_opencode_beta"
 image: "ghcr.io/tanushshukla/ha_opencode_beta"
 url: "https://github.com/tanushshukla/opencode-plus"
@@ -22,7 +22,7 @@ ports:
   4097/tcp: null
 ports_description:
   4096/tcp: "OpenCode LAN server — only serves traffic when the 'OpenCode LAN server' option is enabled. These are container ports; if the stable OpenCode add-on is installed too, give each one a different host port here."
-  4097/tcp: "OpenChamber LAN web UI (requires OpenCode runtime V1 and interface OpenChamber). Container port — pick a host port that the stable add-on is not already using."
+  4097/tcp: "OpenChamber LAN web UI (V2 integration pending). Container port — pick a host port that the stable add-on is not already using."
 
 # File access - Home Assistant config directory
 map:
@@ -71,11 +71,7 @@ udev: false
 # Keep the options and schema blocks in the same order.
 options:
   # --- 1. Presentation ---------------------------------------------------
-  # Select the OpenCode generation first. V2 supports the terminal only; V1
-  # supports both the terminal and OpenChamber.
-  terminal_runtime: "v2"
-  # Interface served through Home Assistant Ingress when V1 is selected.
-  # V2 always uses terminal, but this preference is retained for a later V1 run.
+  # One pinned V2 runtime shared by the terminal and OpenChamber web preview.
   interface_mode: "terminal"
   # Terminal appearance. No effect when interface_mode is openchamber.
   terminal_theme: "breeze"
@@ -126,19 +122,14 @@ options:
   cpu_mode: "auto"
 
   # --- 5. Network exposure -----------------------------------------------
-  # Optional LAN server mode for remote OpenCode clients.
-  # Warning: If you map 4096/tcp in Network settings, this exposes an OpenCode server on your LAN.
+  # Saved LAN options are inactive pending authenticated V2 integration.
   enable_server: false
-  # Browser origin(s) allowed to call the LAN server directly (CORS).
-  # Only needed for browser-based clients (e.g. a web/VS Code UI pointed at
-  # this server); the OpenCode CLI ('opencode attach') does not need this.
-  # Example: http://192.168.1.20:8080
+  # Reserved browser origins for the future V2 LAN listener.
   cors_origins: []
 
   # --- 6. Model providers ------------------------------------------------
-  # PPQ private mode: routes OpenCode through a local encryption proxy for
-  # TEE-backed models. Requires a PPQ API key. The proxy binds to 127.0.0.1
-  # inside the container only.
+  # Starts the internal PPQ proxy and registers native ppq-private models when
+  # a key is configured. Select a private model explicitly; no automatic switch.
   ppq_private_enabled: false
   ppq_api_key: ""
 
@@ -159,9 +150,10 @@ options:
   # Warning: If you map 4097/tcp in Network settings, this exposes the
   # OpenChamber UI on your LAN with no Home Assistant Ingress auth in front.
   enable_openchamber_lan: false
-  # Environment variables to inject into the container
+  # Backend forwarding supports non-reserved provider *_API_KEY variables only.
+  # Other variables retain separate shell/service handling, with a warning.
   env_vars: []
-  # Custom OpenCode configuration (JSON)
+  # Validated native V2 JSON subset; invalid/unsupported fields stop activation.
   opencode_config: ""
   # Run your own .sh scripts from <config>/opencode_beta/startup.d at every
   # start. This is the supported way to extend the add-on, and it executes code
@@ -171,7 +163,6 @@ options:
 
 schema:
   # --- 1. Presentation ---------------------------------------------------
-  terminal_runtime: list(v2|v1)
   interface_mode: list(terminal|openchamber)
   terminal_theme: list(breeze|catppuccin_mocha|catppuccin_latte|dracula|nord|tokyo_night|one_dark|solarized_dark|solarized_light|gruvbox_dark)
   font_size: int(10,24)

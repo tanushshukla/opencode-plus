@@ -120,9 +120,8 @@ describe(`${CHANNEL} skills`, () => {
     }
   });
 
-  it("documents the ESPHome troubleshooting and migration tools", () => {
+  it("documents the ESPHome troubleshooting and migration tools in shipped guidance", () => {
     const files = [
-      path.join(MCP_DIR, "README.md"),
       path.join(MCP_DIR, "MCP_PROFILE_COMPACT.md"),
       path.join(MCP_DIR, "MCP_PROFILE_CONFIGURATION.md"),
       path.join(MCP_DIR, "MCP_PROFILE_FULL.md"),

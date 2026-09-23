@@ -14,7 +14,7 @@
 
 extern char **environ;
 
-static void fail(const char *message) {
+static _Noreturn void fail(const char *message) {
   dprintf(STDERR_FILENO, "opencode-v2-launch: %s\n", message);
   _exit(126);
 }
@@ -24,6 +24,62 @@ static void join_path(char output[PATH_MAX], const char *root,
   if (snprintf(output, PATH_MAX, "%s/%s", root, leaf) >= PATH_MAX) {
     fail("runtime path is too long");
   }
+}
+
+static int provider_environment_name(const char *name) {
+  const char *blocked[] = {"OPENCODE_", "SUPERVISOR_", "HA_", "HAB_", "PPQ_",
+                           "NODE_", "BUN_", "LD_", NULL};
+  size_t length = strlen(name);
+  if (length <= 8 || strcmp(name + length - 8, "_API_KEY") != 0 ||
+      name[0] < 'A' || name[0] > 'Z') return 0;
+  for (size_t i = 0; name[i]; i++) {
+    if (!((name[i] >= 'A' && name[i] <= 'Z') ||
+          (name[i] >= '0' && name[i] <= '9') || name[i] == '_')) return 0;
+  }
+  for (size_t i = 0; blocked[i]; i++) {
+    if (strncmp(name, blocked[i], strlen(blocked[i])) == 0) return 0;
+  }
+  return 1;
+}
+
+// Generated from validated options, never sourced as shell code or inherited
+// from Supervisor. NUL framing preserves quotes and other literal key bytes.
+static void load_provider_environment(const char *runtime_root) {
+  char path[PATH_MAX];
+  join_path(path, runtime_root, "provider-env");
+  int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+  struct stat info;
+  if (fd < 0 || fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) ||
+      info.st_uid != 0 || info.st_gid != 0 || (info.st_mode & 07777) != 0600 ||
+      info.st_nlink != 1 || info.st_size < 0 || info.st_size > 65536) {
+    fail("provider environment is not a secured root-owned file");
+  }
+  size_t size = (size_t)info.st_size;
+  char *bytes = calloc(size + 1, 1);
+  if (!bytes) fail("cannot allocate provider environment");
+  size_t used = 0;
+  while (used < size) {
+    ssize_t count = read(fd, bytes + used, size - used);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) fail("cannot read provider environment");
+    used += (size_t)count;
+  }
+  char extra;
+  if (read(fd, &extra, 1) != 0 || close(fd) != 0) fail("provider environment changed while reading");
+  for (size_t offset = 0; offset < size;) {
+    char *entry = bytes + offset;
+    char *end = memchr(entry, '\0', size - offset);
+    if (!end) fail("provider environment has invalid framing");
+    char *equals = memchr(entry, '=', (size_t)(end - entry));
+    if (!equals) fail("provider environment has an invalid entry");
+    *equals = '\0';
+    if (!provider_environment_name(entry) || setenv(entry, equals + 1, 1) != 0) {
+      fail("provider environment contains an unsupported name");
+    }
+    offset += (size_t)(end - entry) + 1;
+  }
+  explicit_bzero(bytes, size);
+  free(bytes);
 }
 
 static void set_environment(const char *runtime_root,
@@ -45,6 +101,7 @@ static void set_environment(const char *runtime_root,
   if (clearenv() != 0) {
     fail("cannot clear the inherited environment");
   }
+  load_provider_environment(runtime_root);
 
 #define SET_ENV(name, value)                                                   \
   do {                                                                         \
@@ -177,7 +234,7 @@ int main(int argc, char **argv) {
   char port_text[6];
   snprintf(port_text, sizeof(port_text), "%ld", port);
   char *child_argv[] = {
-      "/usr/local/bin/opencode2", "serve",      "--hostname",
+      "/usr/local/libexec/opencode-v2", "serve", "--hostname",
       "127.0.0.1",                  "--port",     port_text,
       "--print-logs",               "--log-level", "info",
       NULL,

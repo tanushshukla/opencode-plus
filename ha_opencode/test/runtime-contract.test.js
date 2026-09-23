@@ -86,7 +86,7 @@ describe(`${CHANNEL} runtime pin`, () => {
   });
 
   it("stays on the certified V1 line", () => {
-    // V2 adoption is governed by OPENCODE_V2_FUTURE.md and its release gates,
+    // V2 adoption is governed by the local root PLAN.md and its release gates,
     // not by editing a pin.
     assert.match(dockerfilePin, /^1\./);
   });

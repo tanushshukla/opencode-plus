@@ -76,6 +76,7 @@ import { fileURLToPath } from "url";
 import { detectAnomaly, searchEntities, generateSuggestions, generateStateSummary } from "./lib/intelligence.js";
 import { validateYamlStructure, resolveConfigPath } from "./lib/validation.js";
 import { configApplyGuidance } from "./lib/config-apply.js";
+import { captureHomeAssistantPage } from "./lib/screenshot.js";
 import { extractContentFromHtml, extractConfigurationSection, extractYamlExamples } from "./lib/html-parser.js";
 import {
   createCompactPayload,
@@ -634,28 +635,6 @@ async function discoverHACoreUrl() {
 // SCREENSHOT HELPERS
 // ============================================================================
 
-/**
- * Take a screenshot of a Home Assistant page using headless Chromium.
- *
- * Uses three complementary auth strategies to ensure the HA frontend
- * authenticates correctly regardless of frontend version:
- *
- *   1. localStorage injection â€” sets hassTokens so the frontend's auth
- *      module finds a valid session on startup
- *   2. WebSocket monkey-patch â€” intercepts the auth_required handshake
- *      and responds with the LLAT before the frontend's own handler
- *   3. HTTP request interception â€” adds Authorization header to all
- *      requests to the HA server (REST API fallback)
- *
- * @param {string} haCoreUrl - HA Core base URL (e.g. "http://192.168.1.100:8123")
- * @param {string} urlPath - Page path to screenshot (e.g. "/lovelace/0")
- * @param {object} options - Screenshot options
- * @param {number} [options.width=1280] - Viewport width in pixels
- * @param {number} [options.height=720] - Viewport height in pixels
- * @param {number} [options.waitSeconds=3] - Extra wait time for dynamic content
- * @param {boolean} [options.fullPage=false] - Capture full scrollable page
- * @returns {Promise<string>} Base64-encoded PNG screenshot
- */
 // Chromium launch dominates screenshot latency (1-4 s on add-on hardware) â€”
 // keep one browser alive across calls and close it after an idle period
 let sharedBrowser = null;
@@ -712,162 +691,19 @@ function scheduleBrowserClose() {
 }
 
 async function takeScreenshot(haCoreUrl, urlPath, options = {}) {
-  const { width = 1280, height = 720, waitSeconds = 3, fullPage = false } = options;
-
   const browser = await getSharedBrowser();
-  let page;
-
   try {
-    page = await browser.newPage();
-    await page.setViewport({ width, height });
-
-    // â”€â”€ Auth Strategy 1: localStorage tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // The HA frontend reads "hassTokens" from localStorage on startup.
-    // We inject a token entry with a non-empty refresh_token (empty string
-    // is falsy and causes the auth module to reject the token) and a
-    // far-future expiry so it won't attempt a refresh during our brief
-    // screenshot window.
-    await page.evaluateOnNewDocument((config) => {
-      try {
-        localStorage.setItem("hassTokens", JSON.stringify({
-          hassUrl: config.hassUrl,
-          clientId: config.hassUrl + "/",
-          access_token: config.token,
-          token_type: "Bearer",
-          refresh_token: "ha-screenshot-tool",
-          expires_in: 1800,
-          expires: Date.now() + 1800000,
-        }));
-      } catch (e) {
-        // localStorage may be unavailable in rare cases â€” fall through
-        // to the other auth strategies
-      }
-
-      // â”€â”€ Auth Strategy 2: WebSocket interceptor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      // Monkey-patch the WebSocket constructor so that when the HA
-      // frontend opens /api/websocket, we can auto-respond to the
-      // auth_required handshake with the LLAT.  This covers cases where
-      // localStorage auth fails or the frontend ignores it.
-      //
-      // Strategy 1 usually succeeds, in which case the frontend answers
-      // auth_required itself.  Both it and this interceptor see the same
-      // frame, so firing unconditionally sent a second auth frame that
-      // Home Assistant rejected and logged for every screenshot:
-      //   Received invalid command: {'type': 'auth', ...}
-      // The connection is already authenticated at that point, so the
-      // screenshot still worked and the only symptom was a Core error.
-      //
-      // The frontend therefore owns authentication and this stays a
-      // fallback: watch outgoing frames, and only authenticate if the page
-      // has not done so shortly after auth_required.
-      const AUTH_FALLBACK_MS = 500;
-      const _WebSocket = window.WebSocket;
-      window.WebSocket = function (url, protocols) {
-        const ws = protocols !== undefined
-          ? new _WebSocket(url, protocols)
-          : new _WebSocket(url);
-
-        if (url && url.includes("/api/websocket")) {
-          let pageAuthSent = false;
-          let fallbackAuthSent = false;
-
-          // Bound up front so the fallback cannot recurse through the patch.
-          const rawSend = ws.send.bind(ws);
-          ws.send = function (data) {
-            try {
-              if (typeof data === "string" && JSON.parse(data)?.type === "auth") {
-                pageAuthSent = true;
-              }
-            } catch (_) { /* non-JSON or binary frame - not an auth frame */ }
-            return rawSend(data);
-          };
-
-          ws.addEventListener("message", function (event) {
-            try {
-              const msg = JSON.parse(event.data);
-              if (msg.type !== "auth_required" || fallbackAuthSent) return;
-              setTimeout(() => {
-                if (pageAuthSent || fallbackAuthSent) return;
-                if (ws.readyState !== _WebSocket.OPEN) return;
-                fallbackAuthSent = true;
-                try {
-                  rawSend(JSON.stringify({
-                    type: "auth",
-                    access_token: config.token,
-                  }));
-                } catch (_) { /* socket closed between check and send */ }
-              }, AUTH_FALLBACK_MS);
-            } catch (_) { /* ignore parse errors on non-JSON frames */ }
-          });
-        }
-
-        return ws;
-      };
-      // Preserve prototype chain so instanceof checks still work
-      window.WebSocket.prototype = _WebSocket.prototype;
-      window.WebSocket.CONNECTING = _WebSocket.CONNECTING;
-      window.WebSocket.OPEN = _WebSocket.OPEN;
-      window.WebSocket.CLOSING = _WebSocket.CLOSING;
-      window.WebSocket.CLOSED = _WebSocket.CLOSED;
-    }, { hassUrl: haCoreUrl, token: HA_ACCESS_TOKEN });
-
-    // â”€â”€ Auth Strategy 3: HTTP request interception â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // Add the Authorization header to every request targeting the HA
-    // server.  External requests (fonts, map tiles, etc.) are left
-    // untouched so we don't leak the token to third parties.
-    await page.setRequestInterception(true);
-    page.on("request", (req) => {
-      if (req.url().startsWith(haCoreUrl)) {
-        req.continue({
-          headers: { ...req.headers(), Authorization: `Bearer ${HA_ACCESS_TOKEN}` },
-        });
-      } else {
-        req.continue();
-      }
+    const capture = await captureHomeAssistantPage(browser, {
+      ...options, haCoreUrl, urlPath, token: HA_ACCESS_TOKEN,
     });
-
-    // Navigate to the target page
-    const normalizedPath = urlPath.startsWith("/") ? urlPath : `/${urlPath}`;
-    const fullUrl = `${haCoreUrl}${normalizedPath}`;
-
-    sendLog("info", "screenshot", { action: "navigating", url: fullUrl, width, height });
-
-    // Use "load" rather than "networkidle0"/"networkidle2" because the HA
-    // frontend keeps a persistent WebSocket open (/api/websocket) for the
-    // lifetime of the page.  "networkidle0" waits for zero active connections,
-    // which is never satisfied, causing every screenshot to time out.  "load"
-    // fires once the page and its subresources are fetched, ignoring ongoing
-    // connections.  Dynamic content rendering is handled by the waitSeconds
-    // delay below.
-    await page.goto(fullUrl, {
-      waitUntil: "load",
-      timeout: 30000,
-    });
-
-    // Wait for dynamic content to render (dashboards, cards, graphs, etc.)
-    const clampedWait = Math.max(0, Math.min(waitSeconds, 15));
-    if (clampedWait > 0) {
-      await new Promise(resolve => setTimeout(resolve, clampedWait * 1000));
-    }
-
-    // Take screenshot
-    const screenshotBuffer = await page.screenshot({
-      type: "png",
-      fullPage,
-      encoding: "base64",
-    });
-
     sendLog("info", "screenshot", {
       action: "captured",
-      path: normalizedPath,
-      size: `${Math.round(screenshotBuffer.length / 1024)}KB (base64)`,
+      requestedPath: capture.requestedPath,
+      path: capture.finalPath,
+      size: `${Math.round(capture.image.length / 1024)}KB (base64)`,
     });
-
-    return screenshotBuffer;
+    return capture;
   } finally {
-    if (page) {
-      await page.close().catch(() => {});
-    }
     scheduleBrowserClose();
   }
 }
@@ -4168,7 +4004,7 @@ const TOOLS = [
           type: "number",
           minimum: 0,
           maximum: 15,
-          description: "Seconds to wait after page load for dynamic content to render (default: 3, max: 15)",
+          description: "Extra seconds to wait after authenticated frontend readiness for dynamic content (default: 3, max: 15)",
         },
         full_page: {
           type: "boolean",
@@ -4781,10 +4617,11 @@ async function handleToolCall(request) {
           params.append("significant_changes_only", "0");
           params.append("skip_initial_state", "true");
         }
-        if (!includeAttributes) {
-          // no_attributes keeps exact repeated values cheap without enabling
-          // minimal_response, which can collapse same-state recorder rows.
-          if (!includeAllChanges) params.append("minimal_response", "true");
+        if (!includeAttributes && !includeAllChanges) {
+          // Core can use last_changed to skip attribute-only records when
+          // no_attributes is combined with skip_initial_state. Complete mode
+          // must retrieve full rows and remove attributes locally instead.
+          params.append("minimal_response", "true");
           params.append("no_attributes", "true");
         }
 
@@ -4801,6 +4638,11 @@ async function handleToolCall(request) {
         } else {
           if (cached) deleteHistoryCacheEntry(historyPath);
           history = await callHA(historyPath);
+          if (includeAllChanges && !includeAttributes && Array.isArray(history)) {
+            history = history.map((states) => Array.isArray(states)
+              ? states.map(({ attributes: _attributes, ...state }) => state)
+              : states);
+          }
           if (cacheable) cacheHistory(historyPath, history, now);
         }
         const events = Array.isArray(history?.[0]) ? history[0] : [];
@@ -7298,7 +7140,6 @@ async function handleToolCall(request) {
 
         sendLog("info", "screenshot", {
           action: "requested",
-          path: urlPath,
           width,
           height,
           waitSeconds,
@@ -7309,24 +7150,22 @@ async function handleToolCall(request) {
         const haCoreUrl = await discoverHACoreUrl();
 
         // Take the screenshot
-        const base64Screenshot = await takeScreenshot(haCoreUrl, urlPath, {
+        const capture = await takeScreenshot(haCoreUrl, urlPath, {
           width,
           height,
           waitSeconds,
           fullPage,
         });
 
-        const normalizedPath = urlPath.startsWith("/") ? urlPath : `/${urlPath}`;
-
         return makeCompatibleResponse({
           content: [
             createTextContent(
-              `Rendered ${normalizedPath} at ${width}x${height} in a headless browser and attached it to this same tool result as an image part. ` +
+              `Captured authenticated Home Assistant page ${capture.finalPath} (requested ${capture.requestedPath}) at ${width}x${height} and attached it to this same tool result as an image part. ` +
                 `Nothing was written to disk - there is no saved file and nothing to open in the Home Assistant UI. ` +
                 `If the image part was replaced by a notice that this model cannot read images, tell the user that directly and suggest a model that accepts image input; do not describe the page and do not claim anything was saved.`,
               { audience: ["user", "assistant"], priority: 0.5 }
             ),
-            createImageContent(base64Screenshot, "image/png", {
+            createImageContent(capture.image, "image/png", {
               audience: ["assistant"],
               priority: 1.0,
             }),

@@ -26,9 +26,9 @@
 import lsp from "vscode-languageserver/node.js";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import yaml from "yaml";
-import { fileURLToPath } from "url";
-import { dirname, join, resolve, isAbsolute } from "path";
-import { existsSync, readFileSync } from "fs";
+import { fileURLToPath, pathToFileURL } from "url";
+import { dirname, resolve } from "path";
+import { readFileSync } from "fs";
 
 // Destructure from CommonJS default export
 const {
@@ -45,6 +45,7 @@ const { parse: parseYaml } = yaml;
 
 // Extracted pure-function modules (testable in isolation)
 import { YamlContextAnalyzer } from "./lib/yaml-analyzer.js";
+import { inspectInclude } from "./lib/include-policy.js";
 import {
   getTriggerPlatformCompletions,
   getConditionTypeCompletions,
@@ -533,7 +534,8 @@ connection.onCompletion(async (params) => {
       }
 
       // Platform completion for triggers
-      if (key === "platform" && context.parentKeys.includes("trigger")) {
+      if ((key === "platform" || key === "trigger") &&
+          context.parentKeys.some((parent) => parent === "trigger" || parent === "triggers")) {
         return getTriggerPlatformCompletions(CompletionItemKind);
       }
 
@@ -970,10 +972,11 @@ async function getTemplateHover(template) {
 // DIAGNOSTICS PROVIDER
 // ============================================================================
 
-async function validateDocument(document) {
+async function validateDocument(document, strict = false) {
   const diagnostics = [];
   
   if (!SUPERVISOR_TOKEN) {
+    if (strict) throw new Error("Home Assistant diagnostics require the supervised credential environment");
     // Can't validate without HA connection
     return diagnostics;
   }
@@ -1014,21 +1017,18 @@ async function validateDocument(document) {
 
     // Validate !include paths
     const includeRefs = yamlAnalyzer.findIncludeReferences(document);
-    const docPath = fileURLToPath(document.uri);
-    const docDir = dirname(docPath);
     
     for (const ref of includeRefs) {
-      const includePath = isAbsolute(ref.path) 
-        ? ref.path 
-        : resolve(docDir, ref.path);
-      
-      if (!existsSync(includePath)) {
+      const include = inspectInclude(document.uri, ref.path);
+      if (include.status !== "exists") {
         diagnostics.push({
           severity: DiagnosticSeverity.Error,
           range: ref.range,
-          message: `Include file not found: ${ref.path}`,
+          message: include.status === "blocked"
+            ? "Include target is outside the permitted workspace or is sensitive/symlinked"
+            : `Include file not found: ${ref.path}`,
           source: "ha-lsp",
-          code: "include-not-found",
+          code: include.status === "blocked" ? "include-blocked" : "include-not-found",
         });
       }
     }
@@ -1091,11 +1091,25 @@ async function validateDocument(document) {
     }
 
   } catch (error) {
+    if (strict) throw new Error("Home Assistant diagnostics are unavailable; check the LSP worker and Core connection");
     connection.console.error(`Validation error: ${error.message}`);
   }
 
   return diagnostics;
 }
+
+connection.onRequest("homeassistant/health", async () => {
+  const config = await haClient.fetch("/config");
+  return { authenticated: true, core_version: config.version };
+});
+connection.onRequest("textDocument/diagnostic", async (params) => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) throw new Error("LSP document is not open");
+  return { kind: "full", items: await validateDocument(document, true) };
+});
+// Each IPC connection owns one worker. Disconnect/cancellation must not leave
+// a credential-bearing language-server process behind.
+process.stdin.once("end", () => process.exit(0));
 
 // Debounce timers are per-document so editing one file doesn't cancel
 // pending validation of another
@@ -1135,21 +1149,15 @@ connection.onDefinition(async (params) => {
   const position = params.position;
   const text = document.getText();
   const lineText = text.split("\n")[position.line];
+  if (typeof lineText !== "string") return null;
   
   // Check for !include
   const includeMatch = lineText.match(/!include\s+([^\s\n]+)/);
   if (includeMatch) {
-    const includePath = includeMatch[1];
-    const docPath = fileURLToPath(document.uri);
-    const docDir = dirname(docPath);
-    
-    const resolvedPath = isAbsolute(includePath) 
-      ? includePath 
-      : resolve(docDir, includePath);
-    
-    if (existsSync(resolvedPath)) {
+    const include = inspectInclude(document.uri, includeMatch[1]);
+    if (include.status === "exists") {
       return {
-        uri: `file://${resolvedPath}`,
+        uri: pathToFileURL(include.path).href,
         range: {
           start: { line: 0, character: 0 },
           end: { line: 0, character: 0 },
@@ -1158,33 +1166,7 @@ connection.onDefinition(async (params) => {
     }
   }
 
-  // Check for !secret
-  const secretMatch = lineText.match(/!secret\s+(\w+)/);
-  if (secretMatch) {
-    const secretName = secretMatch[1];
-    const docPath = fileURLToPath(document.uri);
-    const docDir = dirname(docPath);
-    
-    // Look for secrets.yaml in the same directory or parent
-    const possiblePaths = [
-      resolve(docDir, "secrets.yaml"),
-      resolve(docDir, "..", "secrets.yaml"),
-      "/homeassistant/secrets.yaml",
-    ];
-    
-    for (const secretsPath of possiblePaths) {
-      if (existsSync(secretsPath)) {
-        // TODO: Parse secrets.yaml to find the exact line
-        return {
-          uri: `file://${secretsPath}`,
-          range: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 0 },
-          },
-        };
-      }
-    }
-  }
+  // !secret values and locations are deliberately never inspected or returned.
 
   return null;
 });

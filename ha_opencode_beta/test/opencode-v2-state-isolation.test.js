@@ -95,7 +95,7 @@ describe("OpenCode V2 state isolation", () => {
     assert.match(environment, /export XDG_CACHE_HOME="\$\{OPENCODE_V2_CACHE_HOME\}"/);
   });
 
-  it("prepares V2 roots before activation without replacing the V1 init environment", () => {
+  it("prepares V2 roots before activation independently of legacy data", () => {
     assert.match(init, /source \/usr\/local\/lib\/opencode\/v2-environment\.sh/);
     assert.match(init, /opencode_v2_prepare_directories/);
     assert.match(init, /export HOME="\/data"/);
@@ -125,10 +125,10 @@ describe("OpenCode V2 state isolation", () => {
     }
   });
 
-  it("runs the copy-on-write migration before V1 services are released", () => {
+  it("runs forward migration before credential-bearing background services", () => {
     assert.match(init, /opencode-v2-migrate\.py prepare/);
     assert.match(init, /--runtime-user opencode-v2/);
-    assert.match(init, /continuing with the untouched V1 runtime and state/);
+    assert.match(init, /server is unavailable and existing state is preserved/);
     assert.ok(
       init.indexOf("opencode-v2-migrate.py prepare") < init.indexOf("setsid node /usr/local/bin/discover-services.js"),
     );
@@ -253,6 +253,18 @@ describe("OpenCode V2 state isolation", () => {
     assert.ok(socketReady < restart);
     assert.match(v2Server, /for _attempt in \$\(seq 1 100\)/);
     assert.match(v2Server, /sleep 0\.1/);
+  });
+
+  it("requires an explicit secured provider environment in readiness and native launch", () => {
+    assert.match(v2Server, /\[ ! -f "\$\{V2_RUNTIME_ROOT\}\/provider-env" \]/);
+    assert.match(v2Server, /\[ -L "\$\{V2_RUNTIME_ROOT\}\/provider-env" \]/);
+    assert.match(v2Server, /stat -c '%u:%g:%a:%h' "\$\{V2_RUNTIME_ROOT\}\/provider-env"[^\n]+"0:0:600:1"/);
+    const loader = secureLauncher.slice(secureLauncher.indexOf("static void load_provider_environment"), secureLauncher.indexOf("static void set_environment"));
+    assert.doesNotMatch(loader, /ENOENT/);
+    assert.match(loader, /fd < 0 \|\| fstat/);
+    assert.match(v2BoundaryFixture, /: > "\$\{RUNTIME_ROOT\}\/provider-env"/);
+    assert.match(v2BoundaryFixture, /chown root:root "\$\{RUNTIME_ROOT\}\/provider-env"/);
+    assert.match(v2BoundaryFixture, /chmod 600 "\$\{RUNTIME_ROOT\}\/provider-env"/);
   });
 
   it("isolates the authenticated Home Assistant sidecar from V2 shell subprocesses", () => {

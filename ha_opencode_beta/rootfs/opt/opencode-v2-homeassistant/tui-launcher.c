@@ -20,6 +20,7 @@
 #define SERVER_URL "http://127.0.0.1:4100"
 #define NON_DUMPABLE_LIBRARY "/usr/local/lib/opencode-v2-non-dumpable.so"
 #define PASSWORD_LIMIT 1024
+#define NATIVE_CLI "/usr/local/libexec/opencode-v2"
 
 extern char **environ;
 
@@ -146,10 +147,30 @@ static void drop_privileges(void) {
   }
 }
 
-int main(int argc, char **argv) {
-  if (argc != 2 || geteuid() != 0) {
-    fail("expected one runtime-root argument and root execution");
+static int command_offset(int argc, char **argv) {
+  for (int i = 2; i < argc; i++) {
+    if (strcmp(argv[i], "--standalone") == 0 ||
+        strncmp(argv[i], "--standalone=", 13) == 0 ||
+        strcmp(argv[i], "--server") == 0 ||
+        strncmp(argv[i], "--server=", 9) == 0) {
+      fail("the client must use the Home Assistant managed server");
+    }
   }
+  if (argc > 2 && (strcmp(argv[2], "api") == 0 || strcmp(argv[2], "run") == 0)) return 3;
+  for (int i = 2; i < argc; i++) {
+    if (strcmp(argv[i], "--continue") == 0 || strcmp(argv[i], "-c") == 0) continue;
+    if ((strcmp(argv[i], "--session") == 0 || strcmp(argv[i], "-s") == 0 ||
+         strcmp(argv[i], "--prompt") == 0) && i + 1 < argc) { i++; continue; }
+    fail("supported commands: terminal, run, api, status; use opencode --help");
+  }
+  return 2;
+}
+
+int main(int argc, char **argv) {
+  if (argc < 2 || geteuid() != 0) {
+    fail("expected a runtime-root argument and root execution");
+  }
+  int first_argument = command_offset(argc, argv);
   char ready[PATH_MAX];
   char password_path[PATH_MAX];
   char tui_root[PATH_MAX];
@@ -192,9 +213,14 @@ int main(int argc, char **argv) {
   free(colorterm);
   drop_privileges();
 
-  char *child_argv[] = {
-      "/usr/local/bin/opencode2", "--server", SERVER_URL, NULL,
-  };
+  char *child_argv[argc + 4];
+  int count = 0;
+  child_argv[count++] = NATIVE_CLI;
+  if (first_argument == 3) child_argv[count++] = argv[2];
+  child_argv[count++] = "--server";
+  child_argv[count++] = SERVER_URL;
+  for (int i = first_argument; i < argc; i++) child_argv[count++] = argv[i];
+  child_argv[count] = NULL;
   execve(child_argv[0], child_argv, environ);
   fail("cannot execute the pinned OpenCode V2 TUI");
 }

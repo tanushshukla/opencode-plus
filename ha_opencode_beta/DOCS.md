@@ -23,31 +23,32 @@ at `/usr/share/doc/ha-opencode/NOTICE` and in this repository's
 
 ## Current Beta Changes
 
-- **V2 runtime update**: Beta `3.0.0b13` pins the CLI and plugin to `0.0.0-beta-19242`. This update has only quick contract verification; full runtime compatibility and the reported restart-related shell failures remain unverified.
-- **OpenCode V2 terminal cutover**: Beta `3.0.0b10` uses OpenCode V2 `0.0.0-beta-18684` for the terminal by default. For broad HAOS compatibility, the server runs as root and edits `/homeassistant` directly, matching the proven V1 filesystem model. Its attached TUI still runs separately as UID `60001`. Certified V1 `1.18.25` remains available through the **OpenCode runtime** option.
+- **OpenChamber session creation fix**: Beta `3.0.0b19` fixes HTTP 400 errors when creating sessions or sending JSON requests through Home Assistant Ingress. A first message and free-model reply have been verified through the actual browser UI and Core Ingress.
+- **Official V2 runtime**: Beta `3.0.0b16` pins the CLI and plugin to OpenCode `2.0.13` using the official `@opencode` packages.
+- **Forward state upgrades**: Earlier V2 data upgrades through a validated private copy, preserving conversations, sign-ins and permissions. Successful upgrades remove obsolete generations; failed conversion preserves its input and reports an error. There is no application runtime fallback or rollback selector.
+- **V2-only runtime**: Beta `3.0.0b18` runs one pinned OpenCode V2 server. V1 and the runtime selector have been removed. The server runs as root for Home Assistant filesystem compatibility; its attached terminal runs as UID `60001`.
+- **Managed CLI**: `opencode` and `opencode2` address the same V2 server. `opencode status`, `opencode service status`, and `opencode api GET /api/info` inspect the existing server without starting another daemon.
+- **YAML language assistance**: The `ha_yaml_*` tools provide credentialed HA diagnostics, completion, hover and definitions through a supervised language-server worker. Approved native YAML writes use pinned Prettier formatting.
 - **Fresh V2 provider sign-in**: V1 sessions migrate into V2, but V1 provider credentials do not. Authenticate providers once with `/connect` in V2; the retained V1 credential remains untouched.
 - **Native Home Assistant MCP in V2**: Enabling the optional native bridge adds `homeassistant_native` alongside `homeassistant`. The sidecar keeps the Supervisor token out of inherited V2 environment, managed config, logs, and model context. Because allowed V2 shell commands run as container root, they remain trusted code rather than an OS-isolated boundary.
 - **Complete entity history**: `get_history` can page through every recorded state change as compact value/timestamp pairs and reports complete-window numeric summaries while preserving the bounded newest-200 default.
 - **ESPHome 2026.8 support**: Device Builder migrations can be previewed as validated, hash-guarded candidates; structured DNS/mDNS/ICMP troubleshooting and bounded crash decoding are available; naturally completed log and job streams now finish immediately.
 - **Startup hooks**: Your own `.sh` scripts, kept in your configuration directory, run once every time the add-on starts — the supported way to add a bridge or a small service without editing files inside the container, which never survives a restart. Off by default. See [Startup Hooks (Beta)](#startup-hooks-beta).
 - **Home context**: Sessions now start knowing your installation. A generated **Install briefing** describes your setup (version, areas, entity counts, configuration layout, integrations), **decision notes** carry lasting decisions between sessions once you approve them, and `AGENTS.local.md` holds your own instructions where add-on updates cannot overwrite them. Both options default on and switch off independently. See [Home Context (Beta)](#home-context-beta).
-- **OpenChamber interface mode**: New experimental `openchamber` interface mode starts the OpenChamber web UI behind Home Assistant Ingress, while the default `terminal` mode keeps the existing ttyd terminal unchanged.
+- **OpenChamber V2 preview**: The web interface is built from pinned preview `2.0.0-preview.8` source and its dependency lock. It attaches to the same app-owned V2 backend as the terminal, with independently supervised UI lifecycle and Ingress-adapted assets.
 - **Native Home Assistant MCP bridge**: Optional bridge from OpenCode to Home Assistant Core's native LLM MCP endpoint (`/api/mcp/<API ID>`, default `assist`) for testing the new native LLM/MCP platform when the running Home Assistant version supports it.
 - **Compact Home Assistant context**: New `get_home_context` MCP tool gives agents focused area/domain/entity context with area and device metadata instead of broad state dumps.
 - **Native LLM provider development guide**: New `get_ha_llm_development_guide` MCP tool helps custom integration authors build `<integration>/llm.py` tool providers aligned with Home Assistant's upstream architecture.
 - **Serial device access**: Selected host UART/serial devices can be mapped into the add-on for USB flashing and adapter inspection workflows. Full Supervisor `uart` and `udev` manifest flags remain disabled by default because they are static permissions, not runtime user options.
-- **Optional LAN server mode**: You can now enable an OpenCode server bound to `0.0.0.0` so other computers on your local network can connect directly.
-- **Optional OpenChamber LAN web UI**: When using OpenCode V1 with `interface_mode: openchamber`, you can optionally publish OpenChamber on a mapped LAN port (`4097/tcp`) at the root path `/` for reverse proxies and tunnels.
-- **LAN server CORS origins**: The LAN server can now allow-list specific browser origins (`--cors`), so browser-based OpenCode clients — not just the CLI — can connect to it directly. See [LAN Server Mode (Beta)](#lan-server-mode-beta) below.
-- **PPQ private TEE models**: Opt-in encrypted proxy for PPQ private models running in remote TEEs. The proxy is internal-only and binds to `127.0.0.1` inside the add-on container.
+- **LAN and PPQ compatibility**: Authenticated V2 LAN/OpenChamber LAN is pending. PPQ now registers native private models when enabled with a key; select a private model explicitly. Actual upstream encryption/private-inference acceptance remains pending.
 - **Web terminal clipboard fixes**: Copying inside OpenCode now reaches the browser clipboard, plain `Ctrl+V` paste works, and macOS users can use `Option+drag` to select text while full-screen terminal apps capture the mouse.
 - **Touch scrolling**: One-finger vertical drag gestures inside the terminal now scroll full-screen apps such as OpenCode on phones and tablets.
-- **Certified OpenCode runtimes**: The add-on ships one pinned, tested build for each selectable V1/V2 path and runs only the selected certified build. The `OpenCode update policy` option is gone, and no start-up path installs anything from npm. See [OpenCode Updates](#opencode-updates).
+- **Certified OpenCode runtime**: The app ships one pinned V2 build. Runtime upgrades arrive through app images. See [OpenCode Updates](#opencode-updates).
 - **Home Assistant skills**: The detailed procedures — YAML work, troubleshooting, dashboards, Zigbee/ESPHome, development — now ship as OpenCode skills that are loaded only when the task needs them, instead of being pushed into every request. `AGENTS.md` keeps the consent and safety rules, which are always in force. See [Home Assistant Skills](#home-assistant-skills).
-- **Read-only session**: Run `ha-readonly` for a session that can inspect and diagnose your installation but cannot change it — no file edits, no shell, no service calls, no configuration writes. Your normal OpenCode session is unchanged. Requires `interface_mode: terminal`. See [Read-Only Session](#read-only-session).
+- **Read-only session**: Run `ha-readonly` for a session that can inspect and diagnose your installation but cannot change it — no file edits, no shell, no service calls, no configuration writes. Requires a provider/model that accepts the custom read-only agent; the default free-tier model rejects it. See [Read-Only Session](#read-only-session).
 - **Sensitive file protection**: New **Restrict access to sensitive files** option (default on) denies the AI read access to `secrets.yaml`, `.storage/`, `.cloud/`, `ssl/`, and `*.key`/`*.pem` files so their contents can't reach the model. Set it to `false` to restore fully unrestricted file access. See [Sensitive File Protection](#sensitive-file-protection).
 - **Focus-friendly responses**: Optional action-first, concise, progress-aware response guidance for users who find long or unstructured responses difficult to act on. Disabled by default and available in both terminal and OpenChamber modes.
-- **Browser provider sign-in in OpenChamber**: Providers whose browser OAuth method redirects to a loopback address (for example **ChatGPT Pro/Plus (browser)**) can now be connected from the OpenChamber UI. See [Connecting a provider with browser sign-in](#connecting-a-provider-with-browser-sign-in).
+- **Provider sign-in**: Real provider/OAuth flows in the new V2 preview still need qualification. See [Connecting a provider with browser sign-in](#connecting-a-provider-with-browser-sign-in).
 
 ## Home Context (Beta)
 
@@ -86,13 +87,61 @@ Treat `/addon_configs` as sensitive because it may contain configuration data fo
 
 By default (**Restrict access to sensitive files** = `true`), the add-on adds an OpenCode `permission.read` rule that blocks the AI's file-**read** tool from opening secret/credential files — `secrets.yaml` (any path ending in `secrets.yaml`), the `.storage/` and `.cloud/` directories, the `ssl/` directory, and any `*.key`/`*.pem` files — so their contents can't be pulled into the model's context. Everything else stays readable, and the agent can still edit normal config that *references* secrets via `!secret`. The Home Assistant MCP tools are unaffected; they read live state through the API.
 
-**To restore the previous, fully-permissive behavior,** set **Restrict access to sensitive files** to `false` and restart. You can also fine-tune paths via **Custom OpenCode configuration** using OpenCode's [permission rules](https://opencode.ai/docs/permissions/).
+Set **Restrict access to sensitive files** to `false` to remove the normal agent's sensitive-file read rules. The read-only agent retains its own restrictions. The supported native `opencode_config` subset is validated before activation and cannot override managed permissions, plugins or integration policy; see [Custom Providers and Configuration](#custom-providers-and-configuration-beta).
 
 **Scope/limitation:** this guards OpenCode's file-read tool (the common accidental-exposure path). It does **not** restrict shell commands, so an explicit `cat secrets.yaml` can still read the file — treat it as a strong guardrail, not a hard sandbox.
 
 ## Resource Usage
 
-OpenCode snapshots are disabled by default in this add-on to reduce memory and disk pressure on Home Assistant systems. File watching also ignores noisy internal paths such as `.storage/`, `.cloud/`, caches, logs, and the Home Assistant database. You can override these defaults with **Custom OpenCode configuration** if you need OpenCode's built-in snapshot/undo behavior.
+Filesystem snapshots remain disabled by app policy to reduce memory and disk pressure. This is separate from LSP and formatting. File watching ignores noisy internal paths such as `.storage/`, `.cloud/`, caches, logs and the Home Assistant database. Snapshot overrides through raw custom configuration are not currently supported.
+
+## V2 YAML Language Assistance and Formatting
+
+With **LSP integration** enabled, these agent tools use a real HA YAML language server:
+
+- `ha_yaml_status`: verify the worker's authenticated Home Assistant connection.
+- `ha_yaml_diagnostics`: syntax, entity, service and include diagnostics.
+- `ha_yaml_completions`: suggestions at a zero-based line/UTF-16 character position.
+- `ha_yaml_hover` and `ha_yaml_definition`: language-server information and definitions.
+
+Pass a YAML path inside `/homeassistant`, or supply optional in-memory `text` to
+check a draft without writing it. Sensitive files and symlink traversal are
+rejected. Home Assistant credentials stay in the root-only worker; the V2 process
+communicates through a Unix socket. This works independently of MCP enablement.
+Include diagnostics and definitions are also confined to that workspace without
+following symlinks. Sensitive/hidden targets are rejected before probing whether
+they exist; `!secret` definitions never probe or return secret-file locations.
+
+The managed config still has `lsp: false` because V2 has no native LSP runner;
+the `homeassistant.lsp` plugin owns the agent integration. OpenChamber's editable
+YAML views also request diagnostics and completion for unsaved drafts inside
+`/homeassistant` through authenticated Ingress. Read-only and sensitive-file
+views do not dispatch these requests. Diagnostics are debounced; edits, file
+switches and closed views cancel outstanding work, and stale results are ignored.
+The editor reports unavailable language assistance rather than treating an LSP
+outage as a clean document. This assistance does not save files or reload HA;
+normal editor save controls and approval policies remain separate. LAN editor
+access is not enabled by this integration. Rendered live-HA completion and
+diagnostic refresh passed on amd64; disabled-worker, ARM and HAOS qualification
+remain part of the beta readiness plan.
+The editor transport requires browser `Sec-Fetch-Site: same-origin` metadata to
+validate requests across Ingress's TLS-terminating proxies. Use HTTPS (or a
+localhost browser origin); browsers that omit this metadata, commonly on plain
+HTTP LAN origins, receive an unavailable result rather than weakening the origin
+check. Agent `ha_yaml_*` tools do not have this browser restriction.
+
+Approved native `.yaml`/`.yml` writes use pinned Prettier and honor the file's
+`.prettierrc` preferences. Formatting does not reload Home Assistant or replace
+configuration validation. The read-only agent denies edits and LSP dispatch.
+
+## Desktop Browser Tools versus HA Screenshots
+
+OpenCode's model-facing `browser` tools require a browser attached by the
+OpenCode desktop app, as described in the [V2 Tools guide](https://opencode.ai/v2/docs/tools).
+Opening OpenChamber through Ingress does not attach that desktop browser. The
+packaged Chromium used by the optional HA `screenshot_url` tool is a separate
+capability. Desktop-browser attachment to the beta app's managed server is not
+yet qualified; do not expose a Chromium debugging port as a workaround.
 
 ## Home Assistant Skills
 
@@ -138,24 +187,37 @@ if an older customized procedure is still being loaded.
 
 ## Read-Only Session
 
-> **Requires `interface_mode: terminal`.** `ha-readonly` is a terminal command, and in `openchamber` mode the add-on does not start a terminal — so in that mode it is not available. There is no OpenChamber equivalent: OpenChamber drives one managed OpenCode server with one configuration, and a read-only *option* on that server would change your normal session rather than sit beside it, which is exactly what this feature avoids.
-
-Sometimes you want to understand something, not change it. Run this in the terminal:
+Select `home-assistant-read-only` through `/agents` in the V2 terminal. From an
+app root shell, this helper creates and attaches to a read-only session on the
+same managed V2 server:
 
 ```
 ha-readonly
 ```
 
-This starts OpenCode with the `home-assistant-read-only` agent under a configuration overlay that:
+The native agent policy:
 
 - denies file edits, shell commands, subagents, and the LSP tool
-- forces the Home Assistant MCP server into its `compact` profile, so service calls, configuration writes, updates, firmware, screenshots, `hab` and `zigporter` are not merely discouraged — they do not exist, and are rejected by the server even if something asks for one
-- switches off the native Home Assistant MCP bridge, whose tools the profile does not filter
+- permits the compact diagnostic MCP tool subset and denies mutating/unknown tools before dispatch, without changing the shared server's configured profile
+- denies the native Home Assistant MCP namespace
 - denies reading `secrets.yaml`, `.storage/`, `.cloud/`, `ssl/`, `*.key` and `*.pem` **regardless** of the **Restrict access to sensitive files** setting
 
-Everything else is unchanged: the same provider, the same model, the same instructions, the same view of your configuration directory. The session ends with findings and a recommendation; exit and run `opencode` when you want to act on it.
+The session uses the managed server's V2 data and provider connections; choose
+its model normally. `ha-readonly --print-config` prints the native agent policy.
+Other sessions retain their own agents and policy.
 
-There is no option to turn this on. It is a separate command, so your normal session keeps every capability it has today. `ha-readonly --print-config` prints the exact configuration the session runs under, if you would rather check than trust.
+### Free-tier model compatibility
+
+Normal **Build** sessions work with the tested free model, `opencode/big-pickle`.
+The same model rejects the custom `home-assistant-read-only` agent with:
+
+> OpenCode's free tier can only be used from within OpenCode
+
+This response comes from the free-tier provider, even though the app is running
+OpenCode. We treat it as an accepted provider compatibility restriction, rather
+than an app defect requiring a workaround. For read-only investigations, select
+a provider/model that accepts custom agents. The read-only permissions remain
+in force; normal Build chat does not require a fix for this restriction.
 
 ## MCP Tool Profiles
 
@@ -205,17 +267,33 @@ The add-on does no memory-heavy start-up install, so it runs on low-memory hosts
 
 ## OpenCode Updates
 
-The beta add-on ships one certified runtime for each selectable terminal path: V2 is the default, while V1 remains available for rollback, the LAN server, and OpenChamber. Both are exact upstream versions pinned in the image, installed at build time, and verified during the build. The terminal banner shows which one is active.
+The beta app ships one certified OpenCode V2 runtime, installed at build time and
+verified against its exact pin. The terminal, API client and status commands all
+refer to the same managed server. V1 and runtime rollback are not available.
+The `opencode2` command remains supported throughout 3.x as an alias of `opencode`;
+it does not select a different runtime or start another server.
 
-There is no update policy to choose. OpenCode's own auto-updater is disabled (`OPENCODE_DISABLE_AUTOUPDATE=true`) and nothing in the add-on installs a rolling runtime, so either selectable path uses the exact build tested against this add-on. **A new OpenCode arrives with an add-on update**, after it has been through the beta channel.
+OpenCode's auto-updater is disabled. **A new OpenCode arrives with an app update.**
+Home Assistant Supervisor updates the packaged OpenCode and OpenChamber components
+together. A newer upstream OpenCode release does not mean an app update is available;
+check the OpenCode app's page in Home Assistant for available app updates.
+Use the Home Assistant app controls to manage the service; upstream service-manager
+commands that could start another daemon are rejected by the app's CLI.
 
 If you used the old `latest` policy, an OpenCode may still exist under `/data/.npm-global`. It is left untouched but is no longer on `PATH` and is never used; the add-on logs a one-line notice about this at start-up. You can remove the now-unknown `opencode_update_policy` line from the Configuration tab at your convenience.
 
 ### Checking the runtime yourself
 
-`opencode-smoke-test` verifies the whole chain in one go. Run it in the terminal, or in OpenChamber ask the session to run it with its shell tool. It checks both runtime pins, the selected runtime boundary, generated configuration, MCP and YAML language servers, OpenChamber Ingress patch, skills, and read-only overlay. Under V2 it also verifies direct `/homeassistant` access and authenticated native policy; under V1 rollback it verifies that the V2 managed runtime stayed inactive. It exits non-zero if anything fails, and it is worth attaching to a bug report.
+`opencode-smoke-test` checks the public/private V2 runtime paths, managed server
+health, authenticated policy, context/MCP/LSP plugin state, workspace, credentialed
+LSP connection, formatter configuration and Ingress. Incomplete integrations are
+reported as skipped. It exits non-zero when a required check fails.
 
-The beta image also includes `opencode-v2-self-test`. It authenticates directly to the fixed private loopback V2 server inside one non-dumpable process without using proxy settings or following redirects, verifies the expected runtime guard and MCP state plus read-only permission outcomes, confirms that no approval prompt was created, and removes its temporary session even after a controlled cancellation. It never prints the server password or places it in a command argument or environment variable. The broader `opencode-smoke-test` runs this bounded check automatically when V2 is selected.
+`opencode-v2-self-test` authenticates directly to the fixed conversation server
+without proxies or redirects and checks configured plugins and read-only rules.
+It creates no model session or approval prompt and never prints the server
+password or places it in arguments/environment variables. `opencode status` and
+`opencode service status` are non-starting checks of that same server.
 
 ### CPU requirements
 
@@ -265,56 +343,45 @@ The two MCP servers are intentionally separate:
 
 ## Runtime And Interface (Beta)
 
-Select the **OpenCode runtime** first:
+Choose `terminal` or `openchamber` in **Interface**, save and restart, then open
+**OpenCode Beta** from the Home Assistant sidebar. Both interfaces use the same
+pinned V2 backend and session history through Home Assistant Ingress.
+The server and terminal start from a root-owned project directory, so `.opencode`
+content in `/homeassistant` is not discovered as project plugins. The root server
+accesses HA files directly; the attached terminal runs as UID `60001`.
 
-- `v2`: the default V2 runtime. V2 currently supports the terminal interface only.
-- `v1`: the retained V1 runtime. V1 supports either the terminal or OpenChamber.
+OpenChamber is built from preview `2.0.0-preview.8`, source commit
+`9fba129ddf968df1e5fb6916b84d3ceb35493198`. Its web package reports upstream
+version `1.24.2`; the immutable source identifies this V2 preview. Its client
+dependencies are independent of the app's backend pin.
 
-The **Interface (V1 only)** preference has two choices:
+The UI binds to `127.0.0.1:3010` behind the app's Ingress proxy. Its backend
+credential stays in process memory, and it receives no Supervisor token. Stopping
+the UI leaves the V2 backend running. Updates arrive through app images; the
+preview cannot start or upgrade a separate backend. There is no V1 runtime selector.
 
-- `terminal`: uses the existing ttyd terminal and tmux session.
-- `openchamber`: starts OpenChamber behind Home Assistant Ingress on the same sidebar entry.
-
-Home Assistant's generated add-on form cannot dynamically disable one field from another. If V2 and OpenChamber are selected together, the add-on serves the V2 terminal and retains the OpenChamber preference for the next time V1 is selected.
-
-The V2 server runs as root and accesses `/homeassistant` directly, matching the filesystem model used by the proven V1 runtime. The server and TUI start from a separate root-owned project directory, so `.opencode` content in your Home Assistant directory is not discovered as project plugins. The attached TUI has a separate UID `60001` and root-owned managed configuration.
-
-Choose V1 when you want OpenChamber, the LAN server, or a rollback from the V2 terminal, then save and restart the add-on. V1 leaves the V2 server, sidecar, broker, and proxy inactive. It preserves the original V1 state and never copies V2 sessions back into it. V1 remains a supported selectable path; there is no planned beta milestone that removes it.
-
-The two are exclusive: in `openchamber` mode no terminal is started, so the terminal commands (`ha-readonly`, `ha-logs`, `ha-mcp`, `ha-context`, `ha-hooks`, `hab`, `zigporter`, `opencode-smoke-test`) have no shell to run in. Most of them the OpenCode session can still run with its shell tool if you ask it to; [`ha-readonly`](#read-only-session) is the exception, because it replaces the session rather than running inside one.
-
-To use OpenChamber:
-
-1. In the add-on **Configuration** tab, set **OpenCode runtime** to `v1` and **Interface (V1 only)** to `openchamber`.
-2. Save and restart the add-on.
-3. Open **OpenCode Beta** from the Home Assistant sidebar.
-
-Security and networking notes:
-
-- OpenChamber is not exposed through a Home Assistant Network port by default.
-- The OpenChamber process binds to `127.0.0.1` inside the container.
-- A small first-party ingress proxy binds to internal port `8099`, accepts Home Assistant Ingress traffic, and forwards to OpenChamber locally.
-- Home Assistant Ingress provides the browser authentication layer, so no separate OpenChamber UI password is configured for this mode.
-- LAN access remains the separate opt-in **OpenCode LAN server** feature on port `4096`.
-
-Known beta risk: OpenChamber is a root-hosted web app, so this beta includes a pinned bundle patch for Home Assistant's `/api/hassio_ingress/...` path. If the page loads but actions fail, switch **Interface (V1 only)** back to `terminal`, restart the add-on, and include logs when reporting the issue.
-
-OpenChamber's own built-in update check is disabled in this add-on. OpenChamber is pinned and patched for Home Assistant Ingress when the add-on image is built, so an in-app self-update cannot persist or stay patched and would only hang the UI. OpenChamber is updated by updating the add-on — no "update available" prompt appears inside OpenChamber, and the Update button in **Settings → OpenChamber → About** reports no update.
+Browser startup, shared history/policy and independent UI stop/start have passed
+amd64 devcontainer acceptance. Full streaming/reconnect, provider/OAuth, UI editing
+and ARM/HAOS qualification remain pending.
 
 ### Connecting a provider with browser sign-in
 
-Some providers offer a **browser** sign-in method (for example **ChatGPT Pro/Plus (browser)**) that sends you back to `http://localhost:<port>/auth/callback` after you sign in. That address is the add-on container, not the computer you are browsing from, so the final redirect always fails to load with a connection error. That is expected and does not mean the sign-in failed.
+Use `/connect` in the terminal. Where offered, choose a headless/device-code
+method: a provider's `localhost` browser callback otherwise points at the browsing
+computer rather than this container. Real provider/OAuth compatibility remains
+part of V2 qualification.
 
-In **Settings → Providers**, copy the whole `http://localhost:...` URL from your browser's address bar, paste it into the **Paste authorization code** field, and select **Complete** — the add-on delivers it to OpenCode locally so the sign-in finishes. Pasting only the `code=` value from that URL works too. In `terminal` mode, use the provider's **headless** method instead, which shows a short code to enter on the provider's device-authorization page and needs no redirect at all.
-
-The first V2 activation migrates sessions but does not copy V1 provider credentials because the V1 and V2 credential formats are not reliably compatible. Run `/connect` in the V2 terminal and authenticate each provider once; this does not change the retained V1 credential. If an earlier beta already copied credentials into your active V2 generation, they are preserved rather than deleted and the terminal shows a reminder to reconnect providers that return HTTP `401`.
+The first V2 activation migrates sessions but does not copy legacy V1 provider
+credentials because the formats are incompatible. Authenticate each provider
+once. Existing V2 credentials, including those copied by an earlier beta, are
+preserved; reconnect providers that return HTTP `401`.
 
 ## Expose Read-Only MCP to Home Assistant
 
 This optional server lets **Home Assistant use tools from this app**. It is the
 opposite direction from the native Home Assistant MCP bridge and does not turn
-OpenCode into a conversation agent. It works with **both V2 and the retained V1
-runtime**, independently of local MCP enablement and terminal/OpenChamber mode.
+OpenCode into a conversation agent. It works independently of local MCP enablement
+and the conversation interface.
 The private V2 MCP sidecar is unchanged and never advertised to Home Assistant.
 
 Automatic app discovery requires [Core PR #180378](https://github.com/home-assistant/core/pull/180378),
@@ -397,110 +464,83 @@ The add-on discovers a running Zigbee2MQTT add-on automatically, so **Zigbee2MQT
 
 ## LAN Server Mode (Beta)
 
-LAN server mode lets you attach to the Home Assistant-hosted OpenCode session from a terminal outside the Home Assistant UI.
-
-To enable LAN access:
-
-1. In the add-on **Configuration** tab, turn on **OpenCode LAN server**.
-2. In the add-on **Network** settings, map `4096/tcp` to the host port you want to use.
-3. Save and restart the add-on.
-
-On the secondary computer, use `opencode attach` with your Home Assistant host IP and configured port:
-
-```bash
-opencode attach http://<home-assistant-ip>:<mapped-host-port>
-```
-
-Example, if you mapped `4096/tcp` to host port `4096`:
-
-```bash
-opencode attach http://192.168.1.50:4096
-```
-
-The add-on log shows the current Home Assistant port mapping when the server starts, for example `Home Assistant port mapping: 4096/tcp -> 3443`. If OpenCode also prints `opencode server listening on http://0.0.0.0:4096`, that is the internal container listener, not the URL to use from another computer. Use your Home Assistant host and the mapped host port instead.
-
-Security warning: enabling this service and mapping the port exposes an OpenCode server on your LAN. Only use this on trusted networks, restrict access with your network/firewall controls, and never expose the port to the internet or untrusted networks.
-
-LAN server sessions have no terminal prompt to answer an `ask` permission. To prevent an HTTP client from leaving a write tool call running forever, the add-on denies unmatched `edit: ask` rules in this mode only. The terminal and Ingress UI keep their normal confirmation prompts.
-
-For a write-capable custom agent, grant only the directory it needs and deny the rest. OpenCode evaluates edit rules relative to `/homeassistant`; the add-on also accepts the documented absolute form and translates it for LAN sessions.
-
-```yaml
-permission:
-  edit:
-    "*": deny
-    "docs/**": allow
-```
-
-The equivalent `"/homeassistant/docs/**": allow` works in LAN server mode after an add-on restart. An explicit `edit: allow` remains fully write-capable. The rule is applied when the server starts, so restart the add-on after adding or changing a custom agent file.
+Authenticated LAN access to the managed V2 server is pending. The saved LAN and
+CORS options do not currently start a listener on `4096`. Use Home Assistant
+Ingress for the terminal, or `opencode api` from an app root shell for local API
+requests. The managed server stays on authenticated loopback port `4100`.
 
 ## OpenChamber LAN Web UI (Beta)
 
-By default the OpenChamber web UI (`interface_mode: openchamber`) is served **only** through Home Assistant Ingress at `/api/hassio_ingress/<token>/`. That is the recommended path because Home Assistant provides the authentication layer.
-
-If you instead want a clean root URL for a reverse proxy or tunnel — for example so `https://openchamber.example.com/` maps straight to a backend without an ingress-path redirect/rewrite — enable the OpenChamber LAN web UI. It publishes OpenChamber on a mappable network port and serves it at the root path `/`.
-
-To enable it:
-
-1. Set **OpenCode runtime** to `v1` and **Interface (V1 only)** to `openchamber`.
-2. Set **Enable OpenChamber LAN web UI** to `true`.
-3. In the add-on **Network** settings, map `4097/tcp` to the host port you want to use.
-4. Save and restart the add-on.
-
-Then open the UI at:
-
-```text
-http://<home-assistant-host>:<mapped-host-port>/
-```
-
-Behind a Cloudflare Tunnel, point a public hostname straight at it (no redirect rule needed because it already serves at `/`):
-
-```yaml
-additional_hosts:
-  - hostname: openchamber.example.com
-    service: http://<home-assistant-host>:<mapped-host-port>
-```
-
-How it works:
-
-- A second instance of the OpenChamber ingress proxy binds to `0.0.0.0:4097` and forwards to the same OpenChamber process on `127.0.0.1:3010`.
-- Because the mapped port has no Home Assistant Ingress session, the proxy runs with `OPENCHAMBER_ALLOW_ANY_REMOTE=true` and serves the UI with an empty ingress path (root `/`).
-- The default Ingress instance on `8099` is unchanged and keeps its strict `127.0.0.1` / Supervisor-only allowlist.
-
-Security warning: there is **no Home Assistant login** in front of the mapped `4097/tcp` port. Anyone who can reach it can use OpenChamber, which has read/write access to your configuration. Only map it on trusted networks, and put it behind a reverse proxy, Cloudflare Access, or equivalent authentication before any remote exposure. Never expose the raw port directly to the internet.
-
-### Connecting a browser-based client (CORS)
-
-`opencode attach` and other non-browser clients work out of the box with the steps above. Browser-based clients that call the LAN server directly — for example the [OpenChamber VS Code Extension](https://marketplace.visualstudio.com/items?itemName=fedaykindev.openchamber)'s `openchamber.apiUrl` setting, or any other web/VS Code UI pointed at this server instead of its own local instance — are subject to the browser's CORS policy. Without an allowed origin, this can look like a partial connection: the client may still list providers/models, but sending a chat message or opening the event stream silently gets no response.
-
-To fix this:
-
-1. In the client, find the exact origin it's making requests from (scheme + host + port, no path). Your browser's developer tools Network tab will show this as the `Origin` request header, or as the URL of the page/webview hosting the client.
-2. In the add-on **Configuration** tab, add that origin under **LAN server CORS origins**, for example `http://192.168.1.20:8080`.
-3. Save and restart the add-on.
-
-This option only adds `--cors <origin>` flags to the OpenCode server; it does not change anything else about LAN server mode, and leaving it empty preserves the existing `opencode attach` behavior exactly.
+Authenticated OpenChamber LAN access is under development. Its saved option
+does not currently start a listener on `4097`.
 
 ## PPQ Private TEE Models (Beta)
 
-PPQ private mode routes OpenCode requests through a local encryption proxy before forwarding them to PPQ's private inference API. The proxy verifies the remote enclave, encrypts the request locally, and decrypts the response locally.
+Enable **PPQ private TEE models** and set the PPQ key privately in the app options.
+The app starts the pinned proxy on internal loopback port `8787` and registers
+native `ppq-private` models. Select one explicitly; enabling the option does not
+switch existing sessions or override an explicit default model. The upstream PPQ
+key stays with the proxy, not the V2 backend. Missing keys leave this provider
+inactive with a warning; selecting a PPQ default without its prerequisites stops
+activation with an actionable error.
 
-To enable PPQ private models:
+| Model selection ID | Display name |
+| --- | --- |
+| `ppq-private/private/kimi-k2-5` | Kimi K2.5 (Private) |
+| `ppq-private/private/deepseek-r1-0528` | DeepSeek R1 (Private) |
+| `ppq-private/private/gpt-oss-120b` | GPT-OSS 120B (Private) |
+| `ppq-private/private/llama3-3-70b` | Llama 3.3 70B (Private) |
+| `ppq-private/private/qwen3-vl-30b` | Qwen3-VL 30B (Private) |
 
-1. Get a PPQ API key from PPQ.
-2. In the add-on **Configuration** tab, turn on **PPQ private TEE models (beta)**.
-3. Paste the key into **PPQ API Key**. Alternatively, set `PPQ_API_KEY` through **Environment Variables** if you manage credentials that way.
-4. Save and restart the add-on.
-5. In OpenCode, select the `PPQ Private (TEE)` provider and one of the `private/...` models.
+Controlled V2 tests verify routing to the local proxy endpoint. Startup does not
+certify proxy readiness, upstream availability, encryption or private inference;
+those require real PPQ acceptance before stable promotion.
 
-Security notes:
+## Custom Providers and Configuration (Beta)
 
-- The proxy binds only to `127.0.0.1:8787` inside the add-on container.
-- No Home Assistant network port is exposed for PPQ private mode.
-- The PPQ API key is not logged.
-- The proxy package is pinned at image build time; the add-on does not run `npx latest` at startup.
+The **Custom OpenCode configuration** option accepts a JSON object, not JSONC or
+V1 provider syntax. Supported root fields are `$schema`, `model`, `default_agent`,
+`providers`, boolean `formatter`, `compaction`, `media` and `tool_output`.
+Nested settings are checked against the pinned native V2 schema. Unsupported
+fields and invalid values stop V2 activation for that boot, preserving the saved
+options for correction. Managed permissions, agents, plugins, snapshots, LSP,
+runtime selection and integration policy cannot be overridden here.
 
-Bundled model IDs come from the pinned `ppq-private-mode` package version: `private/kimi-k2-5`, `private/deepseek-r1-0528`, `private/gpt-oss-120b`, `private/llama3-3-70b`, and `private/qwen3-vl-30b`.
+For example, configure `CUSTOM_API_KEY` privately in **Environment variables**,
+then paste this JSON into **Custom OpenCode configuration**, replacing the example
+endpoint and model ID with your provider's values:
+
+```json
+{
+  "model": "custom/chat",
+  "providers": {
+    "custom": {
+      "name": "Custom provider",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "env": ["CUSTOM_API_KEY"],
+      "settings": {
+        "baseURL": "https://provider.example/v1",
+        "apiKey": "{env:CUSTOM_API_KEY}"
+      },
+      "models": {
+        "chat": { "modelID": "your-model-id", "name": "Custom chat" }
+      }
+    }
+  }
+}
+```
+
+Only documented built-in provider packages are accepted; external packages and
+`{file:...}` substitutions are rejected. An explicit `{env:...}` reference must
+resolve to a configured, nonempty supported key. Provider `env` declarations
+without keys produce a warning so native account sign-in remains possible.
+
+Backend environment forwarding currently supports uppercase, non-reserved
+`*_API_KEY` variables only. HA, Supervisor, PPQ and managed-policy names are
+reserved. Other variables retain separate shell/service handling and generate
+a warning; cloud credential chains and general environment parity remain under
+development. Ordinary provider keys are not isolated from backend subprocesses.
+Do not paste keys into chat. Native `/connect` account setup remains available.
 
 ## Startup Hooks (Beta)
 
@@ -618,7 +658,10 @@ rest_command:
     method: post
 ```
 
-**Bridge Home Assistant's voice pipeline to OpenCode.** The use case this feature came from, and the most involved: a [Wyoming](https://github.com/rhasspy/wyoming) server that registers as a conversation agent and forwards what you say to OpenCode. It follows the same shape as the service above — a venv under `/data`, a `setsid` daemon, a `pgrep` guard — and additionally needs the **OpenCode LAN server** option turned on so the hook can reach OpenCode's API at `127.0.0.1:4096`. See [Talking to the add-on itself](#talking-to-the-add-on-itself).
+**Bridge Home Assistant's voice pipeline to OpenCode.** A custom Wyoming bridge
+can use the same venv/background-service pattern, but an existing V1 bridge needs
+adaptation to V2's API. Use the managed client described below; the old unauthenticated
+`127.0.0.1:4096` endpoint is unavailable.
 
 ### The rules
 
@@ -654,7 +697,8 @@ Only `/data` persists, so install into it.
 
 Do not use `pip install --user`: that path contains the Python version number, so it disappears the next time the add-on image moves to a newer Python. There is no compiler-headers package in the image, so prefer packages that publish wheels.
 
-**Node** — `npm install --prefix /data/mybridge <pkg>`. Never `npm install -g`: that prefix is shared with the add-on's own OpenCode updates and the two can corrupt each other.
+**Node** — `npm install --prefix /data/mybridge <pkg>`. Keep hook dependencies
+separate from the app's image-managed packages.
 
 Put your own files under `/data/<name>/`. Never `/data/.cache` — it is deleted on every start.
 
@@ -670,7 +714,9 @@ It **is** reachable from Home Assistant Core and from other add-ons, at this con
 
 A hook can drive OpenCode through its own HTTP API, which is how the voice bridge in issue #66 works.
 
-Turn on **OpenCode LAN server** in the Configuration tab. Despite the name, you do **not** have to map `4096/tcp` in Network settings — mapping is only for reaching it from another computer. Leave it unmapped and the server is reachable at `http://127.0.0.1:4096` from inside the container, which is all a hook needs, with nothing exposed to your network.
+Use `opencode api` from an app root shell. It authenticates to the existing V2
+server and never starts one. Startup hooks run before service readiness, so a
+background bridge must wait until `opencode status` succeeds.
 
 For Home Assistant itself, no extra option is needed: `SUPERVISOR_TOKEN` is already in the hook's environment and `http://supervisor/core` proxies to the Core API, so no long-lived access token is required.
 
@@ -679,8 +725,8 @@ For Home Assistant itself, no extra option is needed: `SUPERVISOR_TOKEN` is alre
 curl -fsSL -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
     http://supervisor/core/api/config
 
-# OpenCode's own API (needs the OpenCode LAN server option on)
-curl -fsSL http://127.0.0.1:4096/app
+# OpenCode's existing managed API (after service readiness)
+opencode api GET /api/info
 ```
 
 ### Seeing what happened

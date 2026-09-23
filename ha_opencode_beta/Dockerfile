@@ -6,6 +6,43 @@ ARG NODE_VERSION=24.15.0
 # Bashio runtime as the final base, and copy an exact official Node toolchain in.
 FROM node:${NODE_VERSION}-trixie-slim AS node-runtime
 
+# OpenChamber's web preview is independently pinned; its desktop CLI is never
+# installed. Build against the upstream lock, on the target's native CI runner.
+FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61 AS openchamber-bun
+FROM node-runtime AS openchamber-builder
+ARG OPENCHAMBER_REVISION=9fba129ddf968df1e5fb6916b84d3ceb35493198
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git python3 g++ make \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=openchamber-bun /usr/local/bin/bun /usr/local/bin/bun
+WORKDIR /opt/openchamber-preview
+RUN git init \
+    && git remote add origin https://github.com/openchamber/openchamber.git \
+    && git -c http.version=HTTP/1.1 fetch --depth 1 origin "${OPENCHAMBER_REVISION}" \
+    && git checkout --detach FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "${OPENCHAMBER_REVISION}" \
+    && test "$(bun --version)" = 1.4.2
+# Patch translated guidance in source so the built frontend uses app-owned updates.
+COPY rootfs/opt/openchamber/patch-app-updates.cjs /tmp/patch-app-updates.cjs
+RUN node /tmp/patch-app-updates.cjs /opt/openchamber-preview
+COPY rootfs/opt/openchamber/patch-editor-lsp.cjs /tmp/patch-editor-lsp.cjs
+COPY rootfs/opt/openchamber/editor-lsp /tmp/editor-lsp
+RUN node /tmp/patch-editor-lsp.cjs /opt/openchamber-preview
+# Skip desktop/mobile lifecycle scripts; explicitly build only the SDK/web assets.
+RUN bun install --frozen-lockfile --ignore-scripts \
+    && bun run --cwd packages/sdk build \
+    && bun run --cwd packages/web build
+COPY rootfs/opt/openchamber/patch-ingress.js /tmp/patch-ingress.cjs
+RUN node /tmp/patch-ingress.cjs /opt/openchamber-preview/packages/web
+COPY rootfs/opt/openchamber/patch-managed-backend.cjs /tmp/patch-managed-backend.cjs
+RUN node /tmp/patch-managed-backend.cjs /opt/openchamber-preview/packages/web
+RUN rm -rf node_modules packages/*/node_modules \
+    && bun install --frozen-lockfile --production --ignore-scripts \
+        --filter @openchamber/web --filter @openchamber/sdk
+RUN node -e 'require("./packages/web/node_modules/node-pty").spawn("/bin/true", []).onExit(e => process.exit(e.exitCode))' \
+    && node --input-type=module -e 'await import("./packages/web/server/index.js"); process.exit(0)'
+RUN --mount=type=bind,source=test/openchamber-request-body.mjs,target=/tmp/openchamber-request-body.mjs,readonly \
+    node --test /tmp/openchamber-request-body.mjs
+
 ## Build hab CLI from source (pinned release)
 # Pinned to the build host's platform — Go cross-compiles via GOARCH below,
 # so this stage never needs to run under emulation
@@ -33,16 +70,9 @@ ARG NODE_VERSION
 # rather than scattering channel-specific paths through the image.
 ARG ADDON_CHANNEL=stable
 ARG TTYD_VERSION=1.7.7
-# Certified V1 runtime. This is a hard pin, never a range or a dist-tag. The
-# selected V1 path runs only this build, and it changes only through a tested
-# add-on release. build.yaml carries the same value and is what CI reads; the two
-# are asserted equal so a half-done bump cannot ship.
-ARG OPENCODE_VERSION=1.18.25
-# OpenCode V2 and its plugin API are one matched, exact beta build. V1 remains
-# installed as the rollback, LAN, and OpenChamber runtime; no V2 process may use
-# the V1 data roots.
-ARG OPENCODE_V2_VERSION=0.0.0-beta-19242
-ARG OPENCHAMBER_VERSION=1.21.0
+# One pinned V2 runtime and its matching plugin API. No V1 runtime is installed.
+ARG OPENCODE_V2_VERSION=2.0.13
+ARG OPENCHAMBER_VERSION=2.0.0-preview.8
 ARG PPQ_PROXY_VERSION=0.1.0
 ARG TSX_VERSION=4.20.6
 ARG YQ_VERSION=v4.53.3
@@ -119,7 +149,8 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Install ttyd from GitHub releases (not in Debian repos)
 RUN ARCH=$([ "$BUILD_ARCH" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
-    && curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ARCH}" -o /usr/bin/ttyd \
+    && curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 120 \
+        "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ARCH}" -o /usr/bin/ttyd \
     && chmod +x /usr/bin/ttyd
 
 # Install yq (mikefarah) from GitHub releases (static Go binary, not in Debian repos).
@@ -129,7 +160,8 @@ RUN ARCH=$([ "$BUILD_ARCH" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
 # The trailing version assertion fails the build on a truncated/HTML-error download and
 # guards against a colliding non-mikefarah "yq" (e.g. the PyPI jq-wrapper) shadowing it.
 RUN ARCH=$([ "$BUILD_ARCH" = "aarch64" ] && echo "arm64" || echo "amd64") \
-    && curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -o /usr/local/bin/yq \
+    && curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 --connect-timeout 10 --max-time 120 \
+        "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -o /usr/local/bin/yq \
     && chmod +x /usr/local/bin/yq \
     && yq --version | grep -q mikefarah
 
@@ -143,21 +175,15 @@ RUN python3 -m venv /opt/zigporter-venv \
     && /opt/zigporter-venv/bin/pip install --no-cache-dir zigporter \
     && ln -s /opt/zigporter-venv/bin/zigporter /usr/local/bin/zigporter
 
-# Install OpenCode, OpenChamber, Prettier, and the PPQ private-mode proxy globally
-# - OpenCode: AI coding agent (certified pin; see OPENCODE_VERSION above)
-# - OpenChamber: browser UI for OpenCode (pinned; patched below for HA Ingress)
-# - Prettier: Code formatter for YAML files, configured for HA conventions
+# Install the PPQ private-mode proxy globally. Prettier is in the V2 lock;
+# OpenChamber is built independently from its pinned preview source above.
 # - ppq-private-mode: local OpenAI-compatible encryption proxy for PPQ TEE models
 # - tsx: pinned runtime for the PPQ package's TypeScript entrypoint
 # Build tools are needed only while npm installs native dependencies. Peer
 # dependencies are omitted because ppq-private-mode is run as a standalone
 # proxy, not loaded as an OpenClaw plugin.
 #
-# The trailing assertion fails the build when the resolved OpenCode is not the
-# certified one. A dist-tag or range slipping into OPENCODE_VERSION would
-# otherwise publish an image whose runtime nobody tested, and the mismatch would
-# surface for the first time on a user's machine. The version is also recorded
-# on disk so runtime code can name the certified build without shelling out.
+# The V2 package and binary pins are verified separately below.
 COPY rootfs/opt/opencode-v2-homeassistant/non-dumpable.c /tmp/opencode-v2-non-dumpable.c
 COPY rootfs/opt/opencode-v2-homeassistant/secure-launcher.c /tmp/opencode-v2-secure-launcher.c
 COPY rootfs/opt/opencode-v2-homeassistant/credential-broker.c /tmp/opencode-v2-credential-broker.c
@@ -179,20 +205,11 @@ RUN apt-get update \
         /tmp/opencode-v2-credential-broker.c /tmp/opencode-container-init.c \
         /tmp/opencode-v2-tui-launcher.c \
     && npm install -g --omit=dev --omit=peer --no-audit --no-fund \
-        opencode-ai@${OPENCODE_VERSION} \
-        @openchamber/web@${OPENCHAMBER_VERSION} \
-        prettier \
         ppq-private-mode@${PPQ_PROXY_VERSION} \
         tsx@${TSX_VERSION} \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/* \
-    && apt-get purge -y --auto-remove g++ make \
-    && INSTALLED=$(node -e "console.log(require('/usr/local/lib/node_modules/opencode-ai/package.json').version)") \
-    && if [ "${INSTALLED}" != "${OPENCODE_VERSION}" ]; then \
-        echo "OPENCODE_VERSION is ${OPENCODE_VERSION} but the installed runtime is ${INSTALLED}" >&2; \
-        exit 1; \
-    fi \
-    && printf '%s\n' "${OPENCODE_VERSION}" > /usr/local/share/opencode-certified-version
+    && apt-get purge -y --auto-remove g++ make
 
 # Copy package.json files first for better layer caching
 # Changes to server code won't invalidate npm install cache
@@ -210,42 +227,40 @@ RUN set -e; \
     wait "${V2_INSTALL_PID}"; \
     wait "${MCP_INSTALL_PID}"; \
     wait "${LSP_INSTALL_PID}" \
-    && V2_INSTALLED=$(node -e "console.log(require('/opt/opencode-v2-homeassistant/node_modules/@opencode-ai/cli/package.json').version)") \
-    && V2_PLUGIN=$(node -e "console.log(require('/opt/opencode-v2-homeassistant/node_modules/@opencode-ai/plugin/package.json').version)") \
+    && V2_INSTALLED=$(node -e "console.log(require('/opt/opencode-v2-homeassistant/node_modules/@opencode/cli/package.json').version)") \
+    && V2_PLUGIN=$(node -e "console.log(require('/opt/opencode-v2-homeassistant/node_modules/@opencode/plugin/package.json').version)") \
     && if [ "${V2_INSTALLED}" != "${OPENCODE_V2_VERSION}" ] || [ "${V2_PLUGIN}" != "${OPENCODE_V2_VERSION}" ]; then \
         echo "OPENCODE_V2_VERSION is ${OPENCODE_V2_VERSION} but CLI=${V2_INSTALLED} plugin=${V2_PLUGIN}" >&2; \
         exit 1; \
     fi \
     && if [ "${BUILD_ARCH}" = "aarch64" ]; then \
-        test -x /opt/opencode-v2-homeassistant/node_modules/@opencode-ai/cli-linux-arm64/bin/opencode2; \
+        test -x /opt/opencode-v2-homeassistant/node_modules/@opencode/cli-linux-arm64/bin/opencode; \
     else \
-        test -x /opt/opencode-v2-homeassistant/node_modules/@opencode-ai/cli-linux-x64/bin/opencode2 \
-        && test -x /opt/opencode-v2-homeassistant/node_modules/@opencode-ai/cli-linux-x64-baseline/bin/opencode2; \
+        test -x /opt/opencode-v2-homeassistant/node_modules/@opencode/cli-linux-x64/bin/opencode \
+        && test -x /opt/opencode-v2-homeassistant/node_modules/@opencode/cli-linux-x64-baseline/bin/opencode; \
     fi \
-    && ln -sf /opt/opencode-v2-homeassistant/node_modules/@opencode-ai/cli/bin/opencode2.exe /usr/local/bin/opencode2 \
-    && opencode2 --version \
+    && mkdir -p /usr/local/libexec \
+    && ln -sf /opt/opencode-v2-homeassistant/node_modules/@opencode/cli/bin/opencode.exe /usr/local/libexec/opencode-v2 \
+    && /usr/local/libexec/opencode-v2 --version \
+    && ln -sf /opt/opencode-v2-homeassistant/node_modules/prettier/bin/prettier.cjs /usr/local/bin/prettier \
     && printf '%s\n' "${OPENCODE_V2_VERSION}" > /usr/local/share/opencode-v2-certified-version \
     && npm cache clean --force \
     && find /opt/ha-mcp-server/node_modules /opt/ha-lsp-server/node_modules \
         -type f \( -name '*.d.ts' -o -name '*.map' \) -delete \
-    && OPENCODE_ARCH=$([ "${BUILD_ARCH}" = "aarch64" ] && echo "arm64" || echo "x64") \
-    && if [ "${OPENCODE_ARCH}" = "arm64" ]; then \
-        find /usr/local/lib/node_modules/opencode-ai/node_modules -mindepth 1 -maxdepth 1 -type d \
-            ! -name "opencode-linux-arm64" -exec rm -rf {} +; \
-    else \
-        find /usr/local/lib/node_modules/opencode-ai/node_modules -mindepth 1 -maxdepth 1 -type d \
-            ! -name "opencode-linux-x64" ! -name "opencode-linux-x64-baseline" -exec rm -rf {} +; \
-    fi \
     && rm -rf /usr/local/lib/node_modules/ppq-private-mode/node_modules/openclaw \
     && find /usr/local/lib/node_modules -type f \( -name '*.d.ts' -o -name '*.map' -o -name '*.pdb' \) -delete \
-    && test "$(opencode --version)" = "${OPENCODE_VERSION}"
+    && test ! -e /usr/local/lib/node_modules/opencode-ai
+
+# Only production dependencies, web assets/server and the SDK enter the image.
+# Neither the build toolchain nor desktop/mobile applications are shipped.
+COPY --from=openchamber-builder /opt/openchamber-preview/node_modules /opt/openchamber-preview/node_modules
+COPY --from=openchamber-builder /opt/openchamber-preview/packages/web /opt/openchamber-preview/packages/web
+COPY --from=openchamber-builder /opt/openchamber-preview/packages/sdk /opt/openchamber-preview/packages/sdk
+COPY --from=openchamber-builder /opt/openchamber-preview/LICENSE /opt/openchamber-preview/LICENSE
+RUN printf '%s\n' "${OPENCHAMBER_VERSION}" > /usr/local/share/openchamber-certified-version
 
 # Copy root filesystem (server code, scripts, etc.)
 COPY rootfs /
-
-# OpenChamber is a generic root-hosted web app. Patch the pinned bundle so its
-# static assets and runtime API URLs resolve under Home Assistant's Ingress path.
-RUN node /opt/openchamber/patch-ingress.js
 
 # Make scripts executable and create runtime directories
 RUN chmod +x /usr/local/bin/* \
@@ -253,6 +268,7 @@ RUN chmod +x /usr/local/bin/* \
     && chmod +x /etc/s6-overlay/s6-rc.d/init-opencode/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode-v2-server/run \
+    && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode-v2-lsp/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode-v2-mcp-sidecar/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode-v2-credential-broker/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode-v2-mcp-proxy/run \
@@ -267,76 +283,10 @@ RUN chmod +x /usr/local/bin/* \
     && chmod +x /etc/profile.d/zigporter-z2m.sh \
     && mkdir -p /data/.local/share/opencode /data/.config/opencode
 
-# Exercise the exact in-image V1 -> V2 session conversion and prove the V1
-# credential file is neither changed nor imported into the V2 generation.
-RUN set -eu; \
-    MIGRATION_TEST_ROOT=$(mktemp -d); \
-    chmod 711 "${MIGRATION_TEST_ROOT}"; \
-    V1_ROOT="${MIGRATION_TEST_ROOT}/v1"; \
-    mkdir -p "${V1_ROOT}/home" "${V1_ROOT}/config" "${V1_ROOT}/data" "${V1_ROOT}/state" "${V1_ROOT}/cache" "${MIGRATION_TEST_ROOT}/workspace"; \
-    (cd "${MIGRATION_TEST_ROOT}/workspace" && \
-        HOME="${V1_ROOT}/home" \
-        XDG_CONFIG_HOME="${V1_ROOT}/config" \
-        XDG_DATA_HOME="${V1_ROOT}/data" \
-        XDG_STATE_HOME="${V1_ROOT}/state" \
-        XDG_CACHE_HOME="${V1_ROOT}/cache" \
-        OPENCODE_DISABLE_AUTOUPDATE=true \
-            exec opencode serve --hostname 127.0.0.1 --port 18098) >/tmp/v1-migration-server.log 2>&1 & \
-    V1_SERVER_PID=$!; \
-    V1_READY=false; \
-    for i in $(seq 1 100); do \
-        if curl -fsS --connect-timeout 1 --max-time 2 http://127.0.0.1:18098/global/health >/dev/null; then V1_READY=true; break; fi; \
-        sleep 0.1; \
-    done; \
-    if [ "${V1_READY}" != true ]; then cat /tmp/v1-migration-server.log >&2; kill -KILL "${V1_SERVER_PID}" 2>/dev/null || true; exit 1; fi; \
-    curl -fsS --max-time 10 -X POST -H 'Content-Type: application/json' \
-        -d '{"title":"V2 image migration fixture"}' \
-        http://127.0.0.1:18098/session >/dev/null; \
-    kill "${V1_SERVER_PID}"; \
-    for i in $(seq 1 100); do \
-        if ! kill -0 "${V1_SERVER_PID}" 2>/dev/null; then break; fi; \
-        sleep 0.1; \
-    done; \
-    if kill -0 "${V1_SERVER_PID}" 2>/dev/null; then kill -KILL "${V1_SERVER_PID}"; fi; \
-    wait "${V1_SERVER_PID}" || true; \
-    python3 -c 'import json,sqlite3,sys; db=sqlite3.connect(sys.argv[1]); sid=db.execute("select id from session limit 1").fetchone()[0]; mid="msg_migrationfixture000000000001"; db.execute("insert into message (id,session_id,time_created,time_updated,data) values (?,?,?,?,?)",(mid,sid,1,1,json.dumps({"role":"user","time":{"created":1},"agent":"build","model":{"providerID":"anthropic","modelID":"fixture"}}))); db.execute("insert into part (id,message_id,session_id,time_created,time_updated,data) values (?,?,?,?,?,?)",("prt_migrationfixture000000000001",mid,sid,1,1,json.dumps({"type":"text","text":"migration fixture"}))); db.commit(); db.close()' "${V1_ROOT}/data/opencode/opencode.db"; \
-    chmod 700 "${V1_ROOT}/data/opencode"; \
-    printf '%s\n' '{"anthropic":{"type":"api","key":"image-migration-fixture"}}' > "${V1_ROOT}/data/opencode/auth.json"; \
-    chmod 600 "${V1_ROOT}/data/opencode/auth.json"; \
-    V1_HASH=$(sha256sum "${V1_ROOT}/data/opencode/opencode.db" | cut -d' ' -f1); \
-    AUTH_HASH=$(sha256sum "${V1_ROOT}/data/opencode/auth.json" | cut -d' ' -f1); \
-    timeout --signal=TERM --kill-after=10s 180s python3 /usr/local/bin/opencode-v2-migrate.py prepare \
-        --root "${MIGRATION_TEST_ROOT}/v2" \
-        --source-data "${V1_ROOT}/data/opencode" \
-        --v2-bin /usr/local/bin/opencode2 \
-        --runtime-user opencode-v2 \
-        --target-version "${OPENCODE_V2_VERSION}" \
-        --timeout 120 >/tmp/v2-migration-result.json; \
-    test "${V1_HASH}" = "$(sha256sum "${V1_ROOT}/data/opencode/opencode.db" | cut -d' ' -f1)"; \
-    test "${AUTH_HASH}" = "$(sha256sum "${V1_ROOT}/data/opencode/auth.json" | cut -d' ' -f1)"; \
-    test -s "${MIGRATION_TEST_ROOT}/v2/current"; \
-    MIGRATED_GENERATION=$(cat "${MIGRATION_TEST_ROOT}/v2/current"); \
-    runuser -u opencode-v2 -- test -r "${MIGRATION_TEST_ROOT}/v2/generations/${MIGRATED_GENERATION}/data/opencode/opencode.db"; \
-    if runuser -u opencode-v2 -- test -r "${V1_ROOT}/data/opencode/opencode.db"; then exit 1; fi; \
-    test "$(jq -r '.status' "${MIGRATION_TEST_ROOT}/v2/migration.json")" = activated; \
-    test "$(jq -r '.source.session_count' "${MIGRATION_TEST_ROOT}/v2/migration.json")" = 1; \
-    test "$(jq -r '.target.session_count' "${MIGRATION_TEST_ROOT}/v2/migration.json")" = 1; \
-    test "$(jq -r '.source.message_count' "${MIGRATION_TEST_ROOT}/v2/migration.json")" = 1; \
-    test "$(jq -r '.source.part_count' "${MIGRATION_TEST_ROOT}/v2/migration.json")" = 1; \
-    test "$(jq -r '.source.content_part_count' "${MIGRATION_TEST_ROOT}/v2/migration.json")" = 1; \
-    test "$(jq -r '.target.message_count' "${MIGRATION_TEST_ROOT}/v2/migration.json")" = 1; \
-    test "$(jq -r '.target.validated_content_part_count' "${MIGRATION_TEST_ROOT}/v2/migration.json")" = 1; \
-    test "$(jq -r '.target.provider_auth_count' "${MIGRATION_TEST_ROOT}/v2/migration.json")" = 0; \
-    HOME="${V1_ROOT}/home" \
-    XDG_CONFIG_HOME="${V1_ROOT}/config" \
-    XDG_DATA_HOME="${V1_ROOT}/data" \
-    XDG_STATE_HOME="${V1_ROOT}/state" \
-    XDG_CACHE_HOME="${V1_ROOT}/cache" \
-    OPENCODE_DISABLE_AUTOUPDATE=true \
-        timeout --signal=TERM --kill-after=5s 30s opencode db --format json 'select count(*) as count from session' \
-        | jq -e '.[0].count == 1' >/dev/null; \
-    rm -f /tmp/v1-migration-server.log /tmp/v2-migration-result.json; \
-    rm -rf "${MIGRATION_TEST_ROOT}"
+# Verify forward import of synthetic legacy data with only the pinned V2 binary.
+RUN --mount=type=bind,source=test/v2-forward-fixture.py,target=/tmp/v2-forward-fixture.py,readonly \
+    timeout --signal=TERM --kill-after=10s 180s \
+    python3 /tmp/v2-forward-fixture.py --version "${OPENCODE_V2_VERSION}"
 
 # Build the custom ttyd index page (served via -I at runtime): ttyd's page is
 # a single self-contained HTML file compiled into the binary, so dump it from
@@ -376,7 +326,7 @@ WORKDIR /homeassistant
 
 # Health check - verify the active ingress service is responding
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -fsS --max-time 5 http://127.0.0.1:8099/ > /dev/null || exit 1
+    CMD curl -fsS --max-time 5 http://127.0.0.1:8099/ > /dev/null && opencode status > /dev/null || exit 1
 
 # Labels for Home Assistant
 LABEL \

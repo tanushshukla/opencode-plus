@@ -28,6 +28,10 @@ import uuid
 
 FORMAT = "ha-opencode-v2-migration/v1"
 GENERATION_RE = re.compile(r"^[a-f0-9]{32}$")
+# Shipped beta generations whose native V2 schema is covered by the upgrade
+# fixture. Unknown builds and downgrades must not open a user's database.
+V2_UPGRADE_SOURCES = {"0.0.0-beta-18684", "0.0.0-beta-19242"}
+V2_UPGRADE_TARGET = "2.0.13"
 MAX_DATABASE_BYTES = 16 * 1024 * 1024 * 1024
 SOURCE_SESSION_COLUMNS = (
     "id",
@@ -1018,6 +1022,7 @@ def validate_session_projection(
                 **projected_session,
                 **TARGET_ONLY_SESSION_DEFAULTS,
             }
+            expected_session["permission"] = normalize_session_permissions(source_session["permission"])
             target_session_row = target.execute(
                 f"SELECT {', '.join(expected_session)} FROM session_v2 WHERE id=?",
                 (session_id,),
@@ -1583,7 +1588,7 @@ def remove_private_tree(path: Path) -> None:
     path.rmdir()
 
 
-def reconcile_private_state(root: Path, current: str | None) -> None:
+def reconcile_private_state(root: Path, current: str | None, *, prune_generations=False) -> None:
     work = root / "work"
     generations = root / "generations"
     for entry in work.iterdir():
@@ -1599,14 +1604,39 @@ def reconcile_private_state(root: Path, current: str | None) -> None:
             raise MigrationError("unexpected_migration_work")
         remove_private_tree(entry)
     for entry in generations.iterdir():
-        if current and entry.name == current:
+        if entry.name == current:
             continue
         if not GENERATION_RE.fullmatch(entry.name):
             raise MigrationError("unexpected_generation")
-        remove_private_tree(entry)
+        if prune_generations:
+            # Only discard identified app-owned generations after the active
+            # database has been validated. Stage deletion in work so a crash
+            # midway through removal is reconciled on the next boot.
+            ensure_plain_directory(entry)
+            generation_result(root, entry.name)
+            database = entry / "data" / "opencode" / "opencode.db"
+            if source_database_is_open(database):
+                raise MigrationError("obsolete_generation_in_use")
+            discarded = work / entry.name
+            os.rename(entry, discarded)
+            fsync_directory(generations)
+            fsync_directory(work)
+            remove_private_tree(discarded)
+            fsync_directory(work)
 
 
-def generation_result(root: Path, generation: str, target_version: str) -> dict:
+def finalize_generation(root: Path, current: str, result: dict) -> None:
+    obsolete = any(entry.name != current for entry in (root / "generations").iterdir())
+    if obsolete:
+        validate_database(root / "generations" / current / "data" / "opencode" / "opencode.db")
+    if "previous_generation" in result:
+        result.pop("previous_generation")
+        atomic_json(root / "generations" / current / "generation.json", {**result, "status": "validated"})
+    reconcile_private_state(root, current, prune_generations=True)
+    atomic_json(root / "migration.json", result)
+
+
+def generation_result(root: Path, generation: str, target_version: str | None = None) -> dict:
     marker = root / "generations" / generation / "generation.json"
     ensure_plain_file(marker)
     try:
@@ -1620,9 +1650,148 @@ def generation_result(root: Path, generation: str, target_version: str) -> dict:
         or value.get("status") != "validated"
     ):
         raise MigrationError("invalid_generation_marker")
-    if value.get("target_version") != target_version:
+    if target_version is not None and value.get("target_version") != target_version:
         raise MigrationError("target_version_mismatch")
     return {**value, "status": "activated"}
+
+
+def normalize_session_permissions(raw):
+    if raw is None:
+        return None
+    rules = decode_json(raw, "invalid_session_permissions") if isinstance(raw, str) else raw
+    if not isinstance(rules, list):
+        raise MigrationError("invalid_session_permissions")
+    normalized = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            raise MigrationError("invalid_session_permissions")
+        if set(rule) == {"permission", "pattern", "action"}:
+            action = {"bash": "shell", "task": "subagent", "write": "edit", "patch": "edit"}.get(
+                rule["permission"], rule["permission"]
+            )
+            rule = {"action": action, "resource": rule["pattern"], "effect": rule["action"]}
+        if (set(rule) != {"action", "resource", "effect"}
+                or not isinstance(rule["action"], str) or not isinstance(rule["resource"], str)
+                or rule["effect"] not in {"allow", "ask", "deny"}):
+            raise MigrationError("invalid_session_permissions")
+        normalized.append(rule)
+    return normalized
+
+
+def restore_session_permissions(before: Path, after: Path, table: str) -> None:
+    # Upstream 2.0 clears session permissions (20260910120000). Preserve the
+    # user's restrictions, translating V1 rules into native ordered V2 rules.
+    source = sqlite3.connect(before.resolve().as_uri() + "?mode=ro", uri=True)
+    target = sqlite3.connect(after)
+    try:
+        for session_id, raw in source.execute(f"SELECT id, permission FROM {table}"):
+            rules = normalize_session_permissions(raw)
+            target.execute("UPDATE session_v2 SET permission=? WHERE id=?", (
+                json.dumps(rules, separators=(",", ":")) if rules is not None else None, session_id,
+            ))
+        target.commit()
+    finally:
+        source.close()
+        target.close()
+
+
+def validate_v2_upgrade(before: Path, after: Path) -> None:
+    """Verify retained user records without logging credentials or content."""
+    connection = sqlite3.connect(after)
+    try:
+        connection.execute("ATTACH DATABASE ? AS previous", (str(before),))
+        # Include all persisted user/session/connection records, not runtime
+        # caches or the schema migration bookkeeping. Existing columns must
+        # survive exactly; newly added columns may have upstream defaults.
+        tables = connection.execute(
+            "SELECT name FROM previous.sqlite_master WHERE type='table'"
+        ).fetchall()
+        for (table,) in tables:
+            if not (table.startswith(("session", "credential", "connection"))
+                    or table in {"event", "event_sequence", "location", "project"}):
+                continue
+            quoted = '"' + table.replace('"', '""') + '"'
+            columns = connection.execute(f"PRAGMA previous.table_info({quoted})").fetchall()
+            if table == "session_v2":
+                columns = [row for row in columns if row[1] != "permission"]
+                for session_id, raw in connection.execute("SELECT id, permission FROM previous.session_v2"):
+                    actual = connection.execute("SELECT permission FROM session_v2 WHERE id=?", (session_id,)).fetchone()
+                    if actual is None or normalize_session_permissions(raw) != normalize_session_permissions(actual[0]):
+                        raise MigrationError("v2_upgrade_permissions_changed")
+            names = ",".join('"' + row[1].replace('"', '""') + '"' for row in columns)
+            if connection.execute(
+                f"SELECT {names} FROM previous.{quoted} EXCEPT SELECT {names} FROM main.{quoted} LIMIT 1"
+            ).fetchone() is not None:
+                raise MigrationError("v2_upgrade_records_changed")
+    except sqlite3.Error as error:
+        raise MigrationError("v2_upgrade_schema_mismatch") from error
+    finally:
+        connection.close()
+
+
+def upgrade_generation(root: Path, current: str, prior: dict, args: argparse.Namespace) -> dict:
+    if (prior.get("target_version") not in V2_UPGRADE_SOURCES
+            or args.target_version != V2_UPGRADE_TARGET):
+        raise MigrationError("target_version_mismatch")
+
+    source = root / "generations" / current
+    validate_tree(source)
+    database = source / "data" / "opencode" / "opencode.db"
+    ensure_plain_file(database)
+    if source_database_is_open(database):
+        raise MigrationError("source_database_in_use")
+    source_files = {str(path.relative_to(source)): path for path in source.rglob("*") if path.is_file()}
+    total = sum(path.stat().st_size for path in source_files.values())
+    if total > MAX_DATABASE_BYTES or shutil.disk_usage(root).free < total * 3 + 256 * 1024 * 1024:
+        raise MigrationError("insufficient_space")
+    hashes = {name: sha256(path) for name, path in source_files.items()}
+    generation = uuid.uuid4().hex
+    candidate = root / "work" / generation
+    activated = root / "generations" / generation
+    try:
+        for leaf in ("home", "config", "data", "state", "cache"):
+            ensure_plain_directory(candidate / leaf, create=True)
+        # The runtime policy is regenerated by init; do not load old executable
+        # config/plugins during conversion. Preserve persistent data and state.
+        for leaf in ("data", "state"):
+            shutil.copytree(source / leaf, candidate / leaf, dirs_exist_ok=True)
+        target = candidate / "data" / "opencode" / "opencode.db"
+        baseline = candidate / ".v2-validation.db"
+        snapshot_database(target, baseline)
+        convert_candidate(candidate, args.v2_bin.resolve(), args.timeout, args.runtime_user)
+        restore_session_permissions(baseline, target, "session_v2")
+        validate_tree(candidate)
+        validate_database(target)
+        validate_v2_upgrade(baseline, target)
+        if (source_database_is_open(database)
+                or {str(path.relative_to(source)) for path in source.rglob("*") if path.is_file()} != hashes.keys()
+                or any(sha256(source / name) != digest for name, digest in hashes.items())):
+            raise MigrationError("source_changed")
+        baseline.unlink()
+        remove_private_tree(candidate / "cache")
+        validated = {
+            **prior, "status": "validated", "generation": generation,
+            "target_version": args.target_version,
+            "upgraded_from_version": prior["target_version"],
+            "target": {
+                "session_count": table_count(target, "session_v2", required=True),
+                "message_count": table_count(target, "session_message", required=True),
+                "provider_auth_count": table_count(target, "credential", required=True),
+            },
+        }
+        validated.pop("previous_generation", None)
+        atomic_json(candidate / "generation.json", validated)
+        fsync_tree(candidate)
+        os.replace(candidate, activated)
+        fsync_directory(root / "generations")
+        atomic_text(root / "current", generation + "\n")
+        finalize_generation(root, generation, {**validated, "status": "activated"})
+        return {"status": "upgraded", "generation": generation}
+    except Exception:
+        remove_private_tree(candidate)
+        if load_current(root) != generation:
+            remove_private_tree(activated)
+        raise
 
 
 def prepare_generation_ownership(generation: Path, runtime_user: str | None) -> None:
@@ -1666,11 +1835,15 @@ def prepare(args: argparse.Namespace) -> dict:
     journal = root / "migration.json"
     with migration_lock(work / ".migration.lock"):
         current = load_current(root)
+        if current is None and any(generations.iterdir()):
+            raise MigrationError("generations_present_without_current")
         reconcile_private_state(root, current)
         if current:
-            result = generation_result(root, current, args.target_version)
+            result = generation_result(root, current)
+            if result.get("target_version") != args.target_version:
+                return upgrade_generation(root, current, result, args)
             prepare_generation_ownership(generations / current, args.runtime_user)
-            atomic_json(journal, result)
+            finalize_generation(root, current, result)
             return {"status": "already_activated", "generation": current}
 
         generation = uuid.uuid4().hex
@@ -1748,6 +1921,7 @@ def prepare(args: argparse.Namespace) -> dict:
             validate_tree(candidate)
             validate_database(target_database)
             if source_info["database"]:
+                restore_session_permissions(validation_database, target_database, "session")
                 target_sessions, target_messages, validated_content_parts = validate_session_projection(
                     validation_database, target_database
                 )

@@ -75,6 +75,9 @@ export function getKeyCompletions(context, CompletionItemKind) {
     const automationKeys = [
       { label: "alias", detail: "Friendly name for the automation" },
       { label: "description", detail: "Description of the automation" },
+      { label: "triggers", detail: "Automation triggers" },
+      { label: "conditions", detail: "Automation conditions" },
+      { label: "actions", detail: "Automation actions" },
       { label: "trigger", detail: "Trigger conditions" },
       { label: "condition", detail: "Conditions to check" },
       { label: "action", detail: "Actions to perform" },
@@ -96,8 +99,9 @@ export function getKeyCompletions(context, CompletionItemKind) {
   }
 
   // Trigger keys
-  if (context.parentKey === "trigger" || context.parentKeys.includes("trigger")) {
+  if (context.parentKeys.some((key) => key === "trigger" || key === "triggers")) {
     const triggerKeys = [
+      { label: "trigger", detail: "Trigger type" },
       { label: "platform", detail: "Trigger platform type" },
       { label: "entity_id", detail: "Entity to monitor" },
       { label: "to", detail: "State to transition to" },
@@ -119,7 +123,7 @@ export function getKeyCompletions(context, CompletionItemKind) {
   }
 
   // Action keys
-  if (context.parentKey === "action" || context.parentKeys.includes("action")) {
+  if (context.parentKeys.some((key) => key === "action" || key === "actions")) {
     const actionKeys = [
       { label: "service", detail: "Service to call" },
       { label: "action", detail: "Action to call (alias for service)" },

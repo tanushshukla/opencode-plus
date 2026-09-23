@@ -34,7 +34,7 @@ esac
 
 version=$(awk -F '"' '/^version: / { print $2; exit }' "${app_dir}/config.yaml")
 image=$(awk -F '"' '/^image: / { print $2; exit }' "${app_dir}/config.yaml")
-build_from=$(awk -v arch="${ha_arch}" '$1 == arch ":" { print $2; exit }' "${app_dir}/build.yaml")
+build_from=$(awk -v arch="${ha_arch}" '{ sub(/\r$/, "") } $1 == arch ":" { print $2; exit }' "${app_dir}/build.yaml")
 
 if [ -z "${version}" ] || [ -z "${image}" ] || [ -z "${build_from}" ]; then
     echo "Cannot resolve version, image, or ${ha_arch} base image for ${app}" >&2
@@ -51,6 +51,7 @@ while IFS= read -r build_arg; do
     build_args+=(--build-arg "${build_arg}")
 done < <(
     awk '
+        { sub(/\r$/, "") }
         /^args:/ { in_args=1; next }
         in_args && /^[^ ]/ { exit }
         in_args && /^  [A-Z0-9_]+:/ {

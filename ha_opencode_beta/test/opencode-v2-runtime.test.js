@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const ADDON_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const PACKAGE_ROOT = join(ADDON_ROOT, "rootfs", "opt", "opencode-v2-homeassistant");
-const CLI = join(PACKAGE_ROOT, "node_modules", "@opencode-ai", "cli", "bin", "opencode2.exe");
+const CLI = join(PACKAGE_ROOT, "node_modules", "@opencode", "cli", "bin", "opencode.exe");
 const SENTINEL = "supervisor-token-must-not-appear";
 
 describe("real OpenCode V2 readiness probe", () => {
@@ -81,7 +81,7 @@ describe("real OpenCode V2 readiness probe", () => {
         timeout: 30_000,
       });
       assert.equal(result.status, 0, result.stderr);
-      assert.match(result.stdout.trim(), /(?:^|\sv?)0\.0\.0-beta-19242$/);
+      assert.match(result.stdout.trim(), /(?:^|\sv?)2\.0\.13$/);
       assert.doesNotMatch(result.stdout + result.stderr, new RegExp(SENTINEL));
       for (const [name, path] of Object.entries(v1Roots)) {
         assert.deepEqual(await readdir(path), [`${name}.sentinel`]);

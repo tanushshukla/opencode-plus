@@ -1,4 +1,4 @@
-import { Plugin } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 
 export const PLUGIN_ID = "homeassistant.mcp";
 export const MCP_SERVER_NAME = "homeassistant";

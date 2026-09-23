@@ -234,11 +234,13 @@ for (const channel of ["ha_opencode", "ha_opencode_beta"]) {
 test("router implementation parity and service graph", () => {
   for (const file of ["ha-mcp-ingress.js", "openchamber-ingress-proxy.js"]) {
     // Stable's quit action depends on V1's SIGHUP teardown contract. Keep the
-    // shared router identical except for this explicit stable-only extension.
+    // shared router identical except for the explicit channel-only extensions.
     const stable = fs.readFileSync(path.join(scripts("ha_opencode"), file), "utf8")
       .replace('const { routeTerminalControl } = require("./terminal-control.js");\n', "")
       .replace('  if (routeTerminalControl(req, res, { ingressPath, upstreamPath, terminal: TERMINAL, lan: ALLOW_ANY_REMOTE })) return;\n', "");
-    assert.equal(stable, fs.readFileSync(path.join(scripts("ha_opencode_beta"), file), "utf8"));
+    const { withoutBetaEditorRoute } = require("../../scripts/ingress-proxy-parity.cjs");
+    const beta = fs.readFileSync(path.join(scripts("ha_opencode_beta"), file), "utf8");
+    assert.equal(stable, file === "openchamber-ingress-proxy.js" ? withoutBetaEditorRoute(beta) : beta);
   }
   for (const channel of ["ha_opencode", "ha_opencode_beta"]) {
     const services = path.resolve(scripts(channel), "../../../etc/s6-overlay/s6-rc.d");

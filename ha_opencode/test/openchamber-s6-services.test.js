@@ -48,7 +48,13 @@ describe("OpenChamber s6 service ownership", () => {
         true,
       );
 
-      assert.match(server, /^exec "\$\{OPENCHAMBER_BIN\}" serve/m);
+      if (channel === "ha_opencode_beta") {
+        assert.match(server, /^exec env -i PATH="\/usr\/local\/bin:\/usr\/bin:\/bin"/m);
+        assert.match(server, /OPENCODE_HOST="http:\/\/127\.0\.0\.1:4100" OPENCODE_SKIP_START="true"/);
+        assert.match(server, /\n\s+node \/opt\/openchamber\/managed-server\.mjs\s*$/);
+      } else {
+        assert.match(server, /^exec "\$\{OPENCHAMBER_BIN\}" serve/m);
+      }
       assert.doesNotMatch(server, /OPENCHAMBER_PID|wait -n|trap cleanup/);
       assert.doesNotMatch(server, /^.*\s&\s*(?:#.*)?$/m);
 
