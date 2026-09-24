@@ -2,8 +2,9 @@
 const http = require("http");
 const net = require("net");
 const zlib = require("zlib");
+const { randomBytes } = require("crypto");
 const { routeHaMcp } = require("./ha-mcp-ingress.js");
-const { routeTerminalControl } = require("./terminal-control.js");
+const { validEditorIngressOrigin } = require("./editor-ingress-origin.js");
 const TERMINAL = process.env.HA_INGRESS_UI === "terminal";
 
 const LISTEN_HOST = process.env.OPENCHAMBER_INGRESS_HOST || "0.0.0.0";
@@ -275,6 +276,8 @@ function decodeBody(buffer, contentEncoding) {
 // methods that consume the pasted code themselves -- are unaffected.
 const OAUTH_AUTHORIZE_PATTERN = /^\/api\/provider\/([^/?#]+)\/oauth\/authorize(?:[?#]|$)/;
 const OAUTH_CALLBACK_PATTERN = /^\/api\/provider\/([^/?#]+)\/oauth\/callback(?:[?#]|$)/;
+const V2_OAUTH_CONNECT_PATTERN = /^\/api\/integration\/openai\/connect\/oauth(?:[?#]|$)/;
+const V2_OAUTH_BRIDGE_PATH = "/__ha_openai_oauth_bridge";
 const OAUTH_BRIDGE_TTL_MS = 15 * 60 * 1000;
 const OAUTH_BRIDGE_TIMEOUT_MS = 10000;
 // A callback payload is a small JSON object ({ method, code }); anything beyond
@@ -282,6 +285,7 @@ const OAUTH_BRIDGE_TIMEOUT_MS = 10000;
 const OAUTH_CALLBACK_BODY_LIMIT = 256 * 1024;
 
 const pendingOauthRedirects = new Map();
+const pendingV2OauthRedirects = new Map();
 
 function matchProviderOauth(upstreamPath, pattern) {
   const match = upstreamPath.match(pattern);
@@ -437,7 +441,7 @@ function requestLoopback(target) {
       { host, port, path, method: "GET", headers: { host: target.host } },
       (response) => {
         response.resume();
-        resolve(true);
+        resolve(response.statusCode >= 200 && response.statusCode < 300);
       },
     );
     request.setTimeout(OAUTH_BRIDGE_TIMEOUT_MS, () => request.destroy());
@@ -449,6 +453,128 @@ function requestLoopback(target) {
     (chain, host) => chain.then((delivered) => (delivered ? true : attempt(host))),
     Promise.resolve(false),
   );
+}
+
+// V2's browser method is an auto attempt: OpenChamber polls its status rather
+// than offering a code field. Open a small same-origin handoff page in place of
+// the authorization URL. It links to OpenAI and accepts the *failed redirect
+// URL* after the browser lands on its own localhost. Only the add-on-side
+// listener receives the code; the V2 status polling then completes normally.
+function armV2OauthBridge(decoded, req, ingressPath) {
+  let payload;
+  try {
+    payload = JSON.parse(decoded.toString("utf8"));
+  } catch {
+    return null;
+  }
+  const body = oauthAuthorizationPayload(payload);
+  if (body?.mode !== "auto" || typeof body.url !== "string") return null;
+  let authorizeUrl;
+  let redirect;
+  try {
+    authorizeUrl = new URL(body.url);
+    redirect = new URL(authorizeUrl.searchParams.get("redirect_uri"));
+  } catch {
+    return null;
+  }
+  if (authorizeUrl.protocol !== "https:" || authorizeUrl.hostname !== "auth.openai.com"
+      || redirect.protocol !== "http:" || !isLoopbackHostname(redirect.hostname)
+      || !["1455", "1457"].includes(redirect.port) || redirect.pathname !== "/auth/callback") return null;
+  const state = authorizeUrl.searchParams.get("state");
+  if (!state || !body.attemptID) return null;
+
+  let handoff;
+  try {
+    // Browser fetches send Origin even when Supervisor proxies the request
+    // using an internal Host. Prefer that browser-visible authority.
+    const origin = req.headers.origin || `${forwardedProto(req)}://${req.headers["x-forwarded-host"] || req.headers.host}`;
+    handoff = new URL(`${origin}${ingressPath}${V2_OAUTH_BRIDGE_PATH}`);
+    if (!["http:", "https:"].includes(handoff.protocol) || !handoff.hostname) return null;
+  } catch {
+    return null;
+  }
+  for (const [key, entry] of pendingV2OauthRedirects) {
+    if (entry.expires <= Date.now()) pendingV2OauthRedirects.delete(key);
+  }
+  if (pendingV2OauthRedirects.size >= 100) pendingV2OauthRedirects.delete(pendingV2OauthRedirects.keys().next().value);
+  const id = randomBytes(24).toString("hex");
+  pendingV2OauthRedirects.set(id, {
+    url: body.url, redirectUri: redirect.toString(), state,
+    expires: Date.now() + 10 * 60 * 1000, // OpenCode V2's attempt lifetime
+  });
+  handoff.searchParams.set("id", id);
+  body.url = handoff.toString();
+  body.instructions = "Open the sign-in link. After OpenAI redirects to localhost, copy the full URL from the address bar into the handoff page. Keep this window open while it connects.";
+  return Buffer.from(JSON.stringify(payload));
+}
+
+function v2BridgePage(entry, id, message = "") {
+  const link = entry ? `<p><a href="${escapeHtmlAttribute(entry.url)}" target="_blank" rel="noopener noreferrer">Continue to OpenAI sign-in</a></p>` : "";
+  const form = entry ? `<form method="post" action="?id=${id}"><label for="callback">Paste the full localhost callback URL (including code and state):</label><p><textarea id="callback" name="callback" rows="3" cols="72" required></textarea></p><button type="submit">Complete sign-in</button></form>` : "";
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><title>OpenAI sign-in handoff</title><main><h1>OpenAI sign-in</h1><p>Keep this page open. After signing in, the localhost page may say it cannot connect. Copy its entire URL from the address bar and return here.</p>${link}${form}<p>${escapeHtmlAttribute(message)}</p></main></html>`;
+}
+
+function handleV2OauthBridge(req, res, upstreamPath) {
+  const respond = (status, entry, id, message) => {
+    res.writeHead(status, noStoreHeaders({
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy": "default-src 'none'; form-action 'self'; base-uri 'none'",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+    }));
+    res.end(v2BridgePage(entry, id, message));
+  };
+  const id = new URL(upstreamPath, "http://localhost").searchParams.get("id") || "";
+  const entry = pendingV2OauthRedirects.get(id);
+  if (!entry || entry.expires <= Date.now()) {
+    pendingV2OauthRedirects.delete(id);
+    respond(404, null, "", "This sign-in has expired. Start again in OpenChamber.");
+    return;
+  }
+  if (req.method === "GET") {
+    respond(200, entry, id, "");
+    return;
+  }
+  if (req.method !== "POST") {
+    respond(405, null, "", "Method not allowed.");
+    return;
+  }
+  const chunks = [];
+  let length = 0;
+  req.on("data", (chunk) => {
+    length += chunk.length;
+    if (length > 8192) {
+      if (!res.headersSent) respond(413, null, "", "Callback URL is too long.");
+      return;
+    }
+    chunks.push(chunk);
+  });
+  req.on("end", async () => {
+    if (length > 8192 || !canWriteResponse(res)) return;
+    let callback;
+    try {
+      callback = new URL(new URLSearchParams(Buffer.concat(chunks).toString("utf8")).get("callback"));
+    } catch {
+      respond(400, entry, id, "Paste the complete localhost callback URL.");
+      return;
+    }
+    const expected = new URL(entry.redirectUri);
+    if (callback.origin !== expected.origin || callback.pathname !== expected.pathname
+        || callback.searchParams.get("state") !== entry.state || !callback.searchParams.get("code")) {
+      respond(400, entry, id, "The callback URL does not match this sign-in. Try again.");
+      return;
+    }
+    const target = new URL(entry.redirectUri);
+    target.searchParams.set("state", entry.state);
+    target.searchParams.set("code", callback.searchParams.get("code"));
+    const delivered = await requestLoopback(target);
+    if (!delivered) {
+      respond(502, entry, id, "The add-on could not reach the local callback listener. Start sign-in again.");
+      return;
+    }
+    pendingV2OauthRedirects.delete(id);
+    respond(200, null, "", "Callback received. Return to OpenChamber; it will finish connecting automatically.");
+  });
 }
 
 // Resolves to "skipped" (nothing armed for this provider), "expired",
@@ -546,7 +672,7 @@ function bridgeOauthCallback(req, res, ingressPath, upstreamPath, providerID) {
   });
 }
 
-function relayOauthAuthorizeResponse(upstreamRes, res, responseHeaders, providerID) {
+function relayOauthAuthorizeResponse(upstreamRes, res, responseHeaders, providerID, req, ingressPath) {
   const chunks = [];
   upstreamRes.on("data", (chunk) => chunks.push(chunk));
   upstreamRes.on("end", () => {
@@ -556,7 +682,10 @@ function relayOauthAuthorizeResponse(upstreamRes, res, responseHeaders, provider
     let rewritten = null;
     if (statusCode < 400) {
       try {
-        rewritten = armOauthBridge(providerID, decodeBody(raw, responseHeaders["content-encoding"]));
+        const decoded = decodeBody(raw, responseHeaders["content-encoding"]);
+        rewritten = providerID === "v2-openai"
+          ? armV2OauthBridge(decoded, req, ingressPath)
+          : armOauthBridge(providerID, decoded);
       } catch (error) {
         console.error(`OAuth loopback bridge could not read the authorize response: ${error.message}`);
       }
@@ -571,6 +700,7 @@ function relayOauthAuthorizeResponse(upstreamRes, res, responseHeaders, provider
     delete responseHeaders["content-length"];
     delete responseHeaders["content-encoding"];
     delete responseHeaders.etag;
+    Object.assign(responseHeaders, noStoreHeaders());
     res.writeHead(statusCode, responseHeaders);
     res.end(rewritten);
   });
@@ -588,7 +718,6 @@ function proxyRequest(req, res) {
   const upstreamPath = stripIngressPath(req.url || "/", ingressPath);
 
   if (routeHaMcp(req, res, { ingressPath, upstreamPath, lan: ALLOW_ANY_REMOTE })) return;
-  if (routeTerminalControl(req, res, { ingressPath, upstreamPath, terminal: TERMINAL, lan: ALLOW_ANY_REMOTE })) return;
   if (TERMINAL) {
     forwardRequest(req, res, { ingressPath, upstreamPath });
     return;
@@ -653,6 +782,11 @@ function proxyRequest(req, res) {
     return;
   }
 
+  if (upstreamPath.split("?", 1)[0] === V2_OAUTH_BRIDGE_PATH) {
+    handleV2OauthBridge(req, res, upstreamPath);
+    return;
+  }
+
   const oauthCallbackProviderID = req.method === "POST"
     ? matchProviderOauth(upstreamPath, OAUTH_CALLBACK_PATTERN)
     : "";
@@ -665,7 +799,8 @@ function proxyRequest(req, res) {
     ingressPath,
     upstreamPath,
     oauthAuthorizeProviderID: req.method === "POST"
-      ? matchProviderOauth(upstreamPath, OAUTH_AUTHORIZE_PATTERN)
+      ? V2_OAUTH_CONNECT_PATTERN.test(upstreamPath) ? "v2-openai"
+        : matchProviderOauth(upstreamPath, OAUTH_AUTHORIZE_PATTERN)
       : "",
   });
 }
@@ -673,8 +808,20 @@ function proxyRequest(req, res) {
 function forwardRequest(req, res, { ingressPath, upstreamPath, body = null, oauthAuthorizeProviderID = "" }) {
   if (!canWriteResponse(res)) return;
   const remoteAddress = normalizeRemoteAddress(req.socket.remoteAddress || "");
+  const editorRequest = /^\/api\/ha-editor-lsp\/(?:diagnostics|completions)$/.test(upstreamPath.split("?", 1)[0]);
+  if (editorRequest && (!isAllowedRemote(remoteAddress) ||
+      !validEditorIngressOrigin(req.headers, ingressPath, ALLOW_ANY_REMOTE))) {
+    res.writeHead(403, noStoreHeaders({ "content-type": "application/json" }));
+    res.end(JSON.stringify({ error: "Editor language service request denied" }));
+    return;
+  }
   const headers = { ...req.headers };
   headers.host = `${UPSTREAM_HOST}:${UPSTREAM_PORT}`;
+  // TLS terminates before the app. Having checked the original browser authority
+  // at the trusted Ingress boundary, normalize this read-only route's Origin to
+  // the internal hop. The backend keeps its strict same-origin/auth checks and
+  // never has to trust caller-supplied X-Forwarded-* claims or a bypass header.
+  if (editorRequest) headers.origin = `http://${headers.host}`;
   headers["accept-encoding"] = "identity";
   headers["x-forwarded-host"] = req.headers["x-forwarded-host"] || req.headers.host || "";
   headers["x-forwarded-proto"] = forwardedProto(req);
@@ -709,7 +856,7 @@ function forwardRequest(req, res, { ingressPath, upstreamPath, body = null, oaut
 
     const contentType = String(upstreamRes.headers["content-type"] || "");
     if (oauthAuthorizeProviderID && contentType.includes("application/json")) {
-      relayOauthAuthorizeResponse(upstreamRes, res, responseHeaders, oauthAuthorizeProviderID);
+      relayOauthAuthorizeResponse(upstreamRes, res, responseHeaders, oauthAuthorizeProviderID, req, ingressPath);
       return;
     }
 

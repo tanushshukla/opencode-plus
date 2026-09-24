@@ -55,6 +55,7 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { startAuthenticatedStreamableHttp } from "./lib/authenticated-streamable-http.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -68,13 +69,13 @@ import {
 import WebSocket from "ws";
 import { readFileSync, writeFileSync, copyFileSync, unlinkSync, existsSync, mkdirSync, renameSync } from "fs";
 import { createHash } from "crypto";
-import { execFile } from "child_process";
 import { dirname, join, resolve, isAbsolute, normalize } from "path";
 import { fileURLToPath } from "url";
 
 // Extracted pure-function modules (testable in isolation)
 import { detectAnomaly, searchEntities, generateSuggestions, generateStateSummary } from "./lib/intelligence.js";
 import { validateYamlStructure, resolveConfigPath } from "./lib/validation.js";
+import { validateConfigTemplates } from "./lib/template-validation.js";
 import { configApplyGuidance } from "./lib/config-apply.js";
 import { captureHomeAssistantPage } from "./lib/screenshot.js";
 import { extractContentFromHtml, extractConfigurationSection, extractYamlExamples } from "./lib/html-parser.js";
@@ -101,15 +102,17 @@ import {
   normalizeNativeMcpApiId,
   probeNativeMcpEndpoint,
 } from "./lib/ha-native-mcp.js";
+import { createNativeMcpHandler } from "./lib/native-mcp-handler.js";
 import { formatErrorLogResult, readErrorLogWithFallback } from "./lib/ha-error-log.js";
 import { createSupervisorAppsClient } from "./lib/supervisor-apps.js";
+import { saveHabOutput } from "./lib/hab-output.js";
+import { createCommandOutputContent } from "./lib/command-output.js";
 import {
   ESPHomeDeviceBuilderClient,
   createESPHomeConfig,
   migrateESPHomeConfig,
   readESPHomeConfig,
   redactESPHomeSensitiveText,
-  redactESPHomeToolArgs,
   sanitizeESPHomeResult,
   updateESPHomeConfig,
   validateESPHomeConfig,
@@ -132,6 +135,13 @@ import {
 } from "./lib/esphome-device-management.js";
 import { requireTimezoneAwareTimestamp } from "./lib/timestamps.js";
 import {
+  DEFAULT_HISTORY_PAGE_LIMIT,
+  MAX_HISTORY_PAGE_LIMIT,
+  projectHistoryValues,
+  selectHistoryPage,
+  summarizeNumericHistory,
+} from "./lib/history.js";
+import {
   DEFAULT_LIST_LIMIT as SUPERVISOR_DEFAULT_LIST_LIMIT,
   DEFAULT_LOG_LINES as SUPERVISOR_DEFAULT_LOG_LINES,
   MAX_LIST_LIMIT as SUPERVISOR_MAX_LIST_LIMIT,
@@ -141,6 +151,7 @@ import {
   projectResolution,
   projectStoreAudit,
   projectSupervisorHealth,
+  hasJobErrors,
   projectSupervisorMetrics,
   redactSensitiveText,
 } from "./lib/supervisor-operations.js";
@@ -154,6 +165,14 @@ import {
   splitServiceCallResult,
 } from "./lib/service-response.js";
 import { extractSecretValues } from "./lib/context-budget.js";
+import {
+  cancellationError,
+  createOperationSignal,
+  getRequestSignal,
+  runCancellableExecFile,
+  throwIfRequestCancelled,
+  withRequestSignal,
+} from "./lib/cancellation.js";
 import {
   DECISION_NOTES_DIR,
   DECISION_NOTES_PATH,
@@ -172,6 +191,8 @@ const __dirname = dirname(__filename);
 
 const SUPERVISOR_API = process.env.HA_API_BASE_URL || "http://supervisor/core/api";
 const SUPERVISOR_BASE_URL = process.env.SUPERVISOR_BASE_URL || "http://supervisor";
+const SUPERVISOR_WEBSOCKET_URL = new URL("/core/websocket", SUPERVISOR_BASE_URL);
+SUPERVISOR_WEBSOCKET_URL.protocol = SUPERVISOR_WEBSOCKET_URL.protocol === "https:" ? "wss:" : "ws:";
 const HA_CONFIG_DIR = "/homeassistant";
 const SUPERVISOR_TOKEN = process.env.SUPERVISOR_TOKEN;
 const HA_ACCESS_TOKEN = process.env.HA_ACCESS_TOKEN;   // Long-lived token for direct HA Core calls
@@ -278,6 +299,7 @@ const SUPERVISOR_METRICS_CACHE_TTL_MS = 10_000;
  */
 async function callHA(endpoint, method = "GET", body = null, timeoutMs = API_TIMEOUT_MS) {
   sendLog("debug", "ha-api", { action: "request", endpoint, method });
+  const operation = createOperationSignal(timeoutMs);
 
   const options = {
     method,
@@ -285,29 +307,32 @@ async function callHA(endpoint, method = "GET", body = null, timeoutMs = API_TIM
       "Authorization": `Bearer ${SUPERVISOR_TOKEN}`,
       "Content-Type": "application/json",
     },
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: operation.signal,
   };
 
   if (body) {
     options.body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${SUPERVISOR_API}${endpoint}`, options);
-  
-  if (!response.ok) {
-    const text = await response.text();
-    const safeText = redactSensitiveText(text).text.slice(0, 2_000);
-    sendLog("error", "ha-api", { action: "error", endpoint, status: response.status, error: safeText });
-    throw Object.assign(new Error(`HA API error (${response.status}): ${safeText}`), { status: response.status });
-  }
+  try {
+    const response = await fetch(`${SUPERVISOR_API}${endpoint}`, options);
+    if (!response.ok) {
+      const text = await response.text();
+      const safeText = redactSensitiveText(text).text.slice(0, 2_000);
+      sendLog("error", "ha-api", { action: "error", endpoint, status: response.status, error: safeText });
+      throw Object.assign(new Error(`HA API error (${response.status}): ${safeText}`), { status: response.status });
+    }
 
-  const contentType = response.headers.get("content-type");
-  if (contentType && contentType.includes("application/json")) {
-    const result = await response.json();
-    sendLog("debug", "ha-api", { action: "response", endpoint, success: true });
-    return result;
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      const result = await response.json();
+      sendLog("debug", "ha-api", { action: "response", endpoint, success: true });
+      return result;
+    }
+    return response.text();
+  } finally {
+    operation.cleanup();
   }
-  return response.text();
 }
 
 /**
@@ -322,6 +347,7 @@ async function callSupervisor(
   { suppressNotFoundLog = false } = {},
 ) {
   sendLog("debug", "supervisor-api", { action: "request", endpoint, method });
+  const operation = createOperationSignal(timeoutMs);
 
   const options = {
     method,
@@ -329,32 +355,34 @@ async function callSupervisor(
       "Authorization": `Bearer ${SUPERVISOR_TOKEN}`,
       "Content-Type": "application/json",
     },
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: operation.signal,
   };
 
   if (body) {
     options.body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${SUPERVISOR_BASE_URL}${endpoint}`, options);
-  
-  if (!response.ok) {
-    const text = await response.text();
-    const safeText = redactSensitiveText(text).text.slice(0, 2_000);
-    if (!(suppressNotFoundLog && response.status === 404)) {
-      sendLog("error", "supervisor-api", { action: "error", endpoint, status: response.status, error: safeText });
+  try {
+    const response = await fetch(`${SUPERVISOR_BASE_URL}${endpoint}`, options);
+    if (!response.ok) {
+      const text = await response.text();
+      const safeText = redactSensitiveText(text).text.slice(0, 2_000);
+      if (!(suppressNotFoundLog && response.status === 404)) {
+        sendLog("error", "supervisor-api", { action: "error", endpoint, status: response.status, error: safeText });
+      }
+      throw Object.assign(new Error(`Supervisor API error (${response.status}): ${safeText}`), { status: response.status });
     }
-    throw Object.assign(new Error(`Supervisor API error (${response.status}): ${safeText}`), { status: response.status });
-  }
 
-  const contentType = response.headers.get("content-type");
-  if (contentType && contentType.includes("application/json")) {
-    const result = await response.json();
-    sendLog("debug", "supervisor-api", { action: "response", endpoint, success: true });
-    // Supervisor API wraps data in { result: "ok", data: {...} }
-    return result.data !== undefined ? result.data : result;
+    const contentType = response.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      const result = await response.json();
+      sendLog("debug", "supervisor-api", { action: "response", endpoint, success: true });
+      return result.data !== undefined ? result.data : result;
+    }
+    return response.text();
+  } finally {
+    operation.cleanup();
   }
-  return response.text();
 }
 
 const supervisorApps = createSupervisorAppsClient({
@@ -529,6 +557,7 @@ async function getServiceCatalogSafely() {
   try {
     return await getCachedServices();
   } catch (error) {
+    throwIfRequestCancelled();
     sendLog("debug", "ha-service", { action: "catalog_unavailable", error: error.message });
     return null;
   }
@@ -941,6 +970,7 @@ async function withESPHomeDeviceBuilder(operation) {
     baseUrl: esphome.url,
     ingressSession: esphome.ingressSession,
     token: HA_ACCESS_TOKEN,
+    signal: getRequestSignal(),
   });
   let result;
   try {
@@ -970,6 +1000,7 @@ async function sanitizeLegacyESPHomeOutput(esphome, text, fallback) {
     baseUrl: esphome.url,
     ingressSession: esphome.ingressSession,
     token: HA_ACCESS_TOKEN,
+    signal: getRequestSignal(),
   });
   try {
     return await sanitizeESPHomeResultWithSecrets(client, text);
@@ -993,12 +1024,23 @@ async function createIngressSessionViaWebSocket(haCoreUrl, token) {
     const wsUrl = haCoreUrl.replace(/^http/, "ws") + "/api/websocket";
     sendLog("debug", "esphome", { action: "ws_session", url: wsUrl });
 
+    const requestSignal = getRequestSignal();
     const ws = new WebSocket(wsUrl);
     let msgId = 1;
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("WebSocket session creation timed out"));
-    }, 15000);
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      requestSignal?.removeEventListener("abort", onAbort);
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      else if (ws.readyState !== WebSocket.CLOSED) ws.terminate();
+      callback(value);
+    };
+    const onAbort = () => finish(reject, cancellationError(requestSignal.reason));
+    const timeout = setTimeout(() => finish(reject, new Error("WebSocket session creation timed out")), 15000);
+    requestSignal?.addEventListener("abort", onAbort, { once: true });
+    if (requestSignal?.aborted) onAbort();
 
     ws.on("open", () => {
       sendLog("debug", "esphome", { action: "ws_session_open" });
@@ -1020,19 +1062,15 @@ async function createIngressSessionViaWebSocket(haCoreUrl, token) {
             method: "post",
           }));
         } else if (msg.type === "auth_invalid") {
-          clearTimeout(timeout);
-          ws.close();
           sendLog("error", "esphome", { action: "ws_session_auth_failed", message: msg.message });
-          resolve(null);
+          finish(resolve, null);
         } else if (msg.type === "result") {
-          clearTimeout(timeout);
-          ws.close();
           if (msg.success && msg.result?.session) {
             sendLog("debug", "esphome", { action: "ws_session_created" });
-            resolve(msg.result.session);
+            finish(resolve, msg.result.session);
           } else {
             sendLog("error", "esphome", { action: "ws_session_failed", result: msg });
-            resolve(null);
+            finish(resolve, null);
           }
         }
       } catch (e) {
@@ -1041,13 +1079,8 @@ async function createIngressSessionViaWebSocket(haCoreUrl, token) {
     });
 
     ws.on("error", (err) => {
-      clearTimeout(timeout);
       sendLog("error", "esphome", { action: "ws_session_error", error: err.message });
-      reject(err);
-    });
-
-    ws.on("close", () => {
-      clearTimeout(timeout);
+      finish(reject, err);
     });
   });
 }
@@ -1083,13 +1116,25 @@ async function streamESPHomeLogs(baseUrl, endpoint, params, onLine = null, timeo
       wsOptions.headers["Authorization"] = `Bearer ${HA_ACCESS_TOKEN}`;
     }
     
+    const requestSignal = getRequestSignal();
     const ws = new WebSocket(wsUrl, wsOptions);
-    
-    // Set timeout
-    const timeoutId = setTimeout(() => {
-      ws.close();
-      reject(new Error(`ESPHome operation timed out after ${timeout / 1000} seconds`));
-    }, timeout);
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      requestSignal?.removeEventListener("abort", onAbort);
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      else if (ws.readyState !== WebSocket.CLOSED) ws.terminate();
+      callback(value);
+    };
+    const onAbort = () => finish(reject, cancellationError(requestSignal.reason));
+    const timeoutId = setTimeout(
+      () => finish(reject, new Error(`ESPHome operation timed out after ${timeout / 1000} seconds`)),
+      timeout,
+    );
+    requestSignal?.addEventListener("abort", onAbort, { once: true });
+    if (requestSignal?.aborted) onAbort();
     
     ws.on("open", () => {
       sendLog("debug", "esphome", { action: "ws_open", endpoint });
@@ -1106,8 +1151,6 @@ async function streamESPHomeLogs(baseUrl, endpoint, params, onLine = null, timeo
         }
         
         if (msg.event === "exit") {
-          clearTimeout(timeoutId);
-          ws.close();
           const duration = ((Date.now() - startTime) / 1000).toFixed(1);
           sendLog("info", "esphome", { 
             action: "ws_complete", 
@@ -1117,7 +1160,7 @@ async function streamESPHomeLogs(baseUrl, endpoint, params, onLine = null, timeo
             duration: `${duration}s`,
             logLines: logs.length 
           });
-          resolve({ 
+          finish(resolve, {
             success: msg.code === 0, 
             code: msg.code, 
             logs,
@@ -1130,15 +1173,13 @@ async function streamESPHomeLogs(baseUrl, endpoint, params, onLine = null, timeo
     });
     
     ws.on("error", (error) => {
-      clearTimeout(timeoutId);
       sendLog("error", "esphome", { action: "ws_error", endpoint, error: error.message });
-      reject(new Error(`ESPHome WebSocket error: ${error.message}`));
+      finish(reject, new Error(`ESPHome WebSocket error: ${error.message}`));
     });
     
     ws.on("close", (code, reason) => {
-      clearTimeout(timeoutId);
       // Only log unexpected closes (not our intentional closes)
-      if (logs.length === 0) {
+      if (!settled && logs.length === 0) {
         sendLog("warning", "esphome", { action: "ws_close_unexpected", code, reason: reason?.toString() });
       }
     });
@@ -1162,19 +1203,22 @@ async function getESPHomeDevices(esphomeUrl, ingressSession = null) {
   }
   const url = `${esphomeUrl}/devices`;
   sendLog("debug", "esphome", { action: "get_devices", url, hasSession: !!ingressSession, hasToken: !!HA_ACCESS_TOKEN });
-  const response = await fetch(url, { headers, signal: AbortSignal.timeout(API_TIMEOUT_MS) });
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      invalidateESPHomeCache();
+  const operation = createOperationSignal(API_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { headers, signal: operation.signal });
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) invalidateESPHomeCache();
+      let body = "";
+      try { body = await response.text(); } catch (_) {}
+      const detail = `HTTP ${response.status} from ${url}` +
+        (body ? `\nResponse body: ${body.slice(0, 500)}` : "") +
+        `\nHeaders sent: Cookie=${ingressSession ? "ingress_session=<set>" : "<none>"}, Authorization=${HA_ACCESS_TOKEN ? "Bearer <set>" : "<none>"}`;
+      throw new Error(`Failed to get ESPHome devices: ${detail}`);
     }
-    let body = "";
-    try { body = await response.text(); } catch (_) {}
-    const detail = `HTTP ${response.status} from ${url}` +
-      (body ? `\nResponse body: ${body.slice(0, 500)}` : "") +
-      `\nHeaders sent: Cookie=${ingressSession ? "ingress_session=<set>" : "<none>"}, Authorization=${HA_ACCESS_TOKEN ? "Bearer <set>" : "<none>"}`;
-    throw new Error(`Failed to get ESPHome devices: ${detail}`);
+    return await response.json();
+  } finally {
+    operation.cleanup();
   }
-  return await response.json();
 }
 
 // ============================================================================
@@ -1503,14 +1547,14 @@ async function getEntityRelationships(entityId, prefetchedStates = null) {
  */
 async function fetchUrl(url) {
   sendLog("debug", "docs", { action: "fetch", url });
-  
+  const operation = createOperationSignal(15000);
   try {
     const response = await fetch(url, {
       headers: {
         "User-Agent": "HomeAssistant-MCP-Server/2.1.0",
         "Accept": "text/html,application/xhtml+xml,text/plain",
       },
-      signal: AbortSignal.timeout(15000),
+      signal: operation.signal,
     });
     
     if (!response.ok) {
@@ -1519,8 +1563,11 @@ async function fetchUrl(url) {
     
     return await response.text();
   } catch (error) {
+    throwIfRequestCancelled();
     sendLog("error", "docs", { action: "fetch_error", url, error: error.message });
     throw error;
+  } finally {
+    operation.cleanup();
   }
 }
 
@@ -1601,11 +1648,12 @@ async function fetchRemoteDeprecationPatterns() {
   }
   dynamicCache.patterns.lastAttemptAt = now;
 
+  const operation = createOperationSignal(5000);
   try {
     sendLog("debug", "patterns", { action: "fetch_remote", url: GITHUB_PATTERNS_URL });
     const response = await fetch(GITHUB_PATTERNS_URL, {
       headers: { "User-Agent": "HomeAssistant-MCP-Server/2.6.0", "Accept": "application/json" },
-      signal: AbortSignal.timeout(5000),
+      signal: operation.signal,
     });
     
     if (!response.ok) {
@@ -1627,9 +1675,12 @@ async function fetchRemoteDeprecationPatterns() {
     sendLog("info", "patterns", { action: "remote_loaded", count: compiled.length });
     return compiled;
   } catch (error) {
+    throwIfRequestCancelled();
     sendLog("debug", "patterns", { action: "remote_fetch_failed", error: error.message });
     // Fall through to local patterns
     return null;
+  } finally {
+    operation.cleanup();
   }
 }
 
@@ -1647,11 +1698,12 @@ async function fetchHAAlerts() {
   }
   dynamicCache.alerts.lastAttemptAt = now;
 
+  const operation = createOperationSignal(5000);
   try {
     sendLog("debug", "alerts", { action: "fetch", url: HA_ALERTS_URL });
     const response = await fetch(HA_ALERTS_URL, {
       headers: { "User-Agent": "HomeAssistant-MCP-Server/2.6.0", "Accept": "application/json" },
-      signal: AbortSignal.timeout(5000),
+      signal: operation.signal,
     });
     
     if (!response.ok) {
@@ -1664,8 +1716,11 @@ async function fetchHAAlerts() {
     sendLog("info", "alerts", { action: "loaded", count: alerts.length });
     return alerts;
   } catch (error) {
+    throwIfRequestCancelled();
     sendLog("debug", "alerts", { action: "fetch_failed", error: error.message });
     return dynamicCache.alerts.data || [];
+  } finally {
+    operation.cleanup();
   }
 }
 
@@ -1683,22 +1738,40 @@ async function fetchHARepairs() {
   }
   dynamicCache.repairs.lastAttemptAt = now;
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const wsUrl = "ws://supervisor/core/websocket";
+    const requestSignal = getRequestSignal();
     let msgId = 1;
+    let ws;
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      requestSignal?.removeEventListener("abort", onAbort);
+      try {
+        if (ws?.readyState === WebSocket.OPEN) ws.close();
+        else if (ws?.readyState !== WebSocket.CLOSED) ws?.terminate?.();
+      } catch (_) {}
+      callback(value);
+    };
+    const onAbort = () => finish(reject, cancellationError(requestSignal.reason));
     const timeout = setTimeout(() => {
-      try { ws.close(); } catch (_) {}
       sendLog("debug", "repairs", { action: "ws_timeout" });
-      resolve(dynamicCache.repairs.data || []);
+      finish(resolve, dynamicCache.repairs.data || []);
     }, 5000);
 
-    let ws;
     try {
       ws = new WebSocket(wsUrl);
     } catch (error) {
       clearTimeout(timeout);
       sendLog("debug", "repairs", { action: "ws_connect_failed", error: error.message });
-      resolve(dynamicCache.repairs.data || []);
+      finish(resolve, dynamicCache.repairs.data || []);
+      return;
+    }
+    requestSignal?.addEventListener("abort", onAbort, { once: true });
+    if (requestSignal?.aborted) {
+      onAbort();
       return;
     }
 
@@ -1725,31 +1798,25 @@ async function fetchHARepairs() {
         }
         
         if (msg.type === "auth_invalid") {
-          clearTimeout(timeout);
-          ws.close();
           sendLog("debug", "repairs", { action: "auth_failed" });
-          resolve(dynamicCache.repairs.data || []);
+          finish(resolve, dynamicCache.repairs.data || []);
           return;
         }
         
         // Step 3: Repairs result
         if (msg.type === "result" && msg.success && msg.result?.issues) {
-          clearTimeout(timeout);
-          ws.close();
           const issues = msg.result.issues;
           dynamicCache.repairs.data = issues;
           dynamicCache.repairs.fetchedAt = now;
           sendLog("info", "repairs", { action: "loaded", count: issues.length });
-          resolve(issues);
+          finish(resolve, issues);
           return;
         }
         
         // Handle unexpected responses
         if (msg.type === "result" && !msg.success) {
-          clearTimeout(timeout);
-          ws.close();
           sendLog("debug", "repairs", { action: "api_error", error: msg.error });
-          resolve(dynamicCache.repairs.data || []);
+          finish(resolve, dynamicCache.repairs.data || []);
         }
       } catch (parseError) {
         // Ignore parse errors, wait for timeout
@@ -1757,13 +1824,8 @@ async function fetchHARepairs() {
     });
 
     ws.on("error", (error) => {
-      clearTimeout(timeout);
       sendLog("debug", "repairs", { action: "ws_error", error: error.message });
-      resolve(dynamicCache.repairs.data || []);
-    });
-
-    ws.on("close", () => {
-      clearTimeout(timeout);
+      finish(resolve, dynamicCache.repairs.data || []);
     });
   });
 }
@@ -1772,26 +1834,37 @@ async function fetchHARepairs() {
  * Run a single HA WebSocket API command (auth, send, close).
  * Used for registry dumps that have no REST equivalent.
  */
-function callHAWebSocketCommand(commandType, timeoutMs = 5000) {
+function callHAWebSocketCommand(commandType, timeoutMs = 5000, url = "ws://supervisor/core/websocket") {
   return new Promise((promiseResolve, promiseReject) => {
+    const requestSignal = getRequestSignal();
     let settled = false;
     const settle = (fn, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      try { ws.close(); } catch (_) {}
+      requestSignal?.removeEventListener("abort", onAbort);
+      try {
+        if (ws?.readyState === WebSocket.OPEN) ws.close();
+        else ws?.terminate?.();
+      } catch (_) {}
       fn(value);
     };
+    const onAbort = () => settle(promiseReject, cancellationError(requestSignal.reason));
     const timeout = setTimeout(() => {
       settle(promiseReject, new Error(`WebSocket command '${commandType}' timed out`));
     }, timeoutMs);
 
     let ws;
     try {
-      ws = new WebSocket("ws://supervisor/core/websocket");
+      ws = new WebSocket(url);
     } catch (error) {
       clearTimeout(timeout);
       promiseReject(error);
+      return;
+    }
+    requestSignal?.addEventListener("abort", onAbort, { once: true });
+    if (requestSignal?.aborted) {
+      onAbort();
       return;
     }
 
@@ -2046,71 +2119,6 @@ async function checkConfigForDeprecations(yamlConfig, integration = null) {
 // CONFIG VALIDATION HELPERS
 // ============================================================================
 
-/**
- * Extract Jinja2 templates from YAML content and validate each through HA's
- * template engine. Templates containing automation context variables (trigger.*,
- * this.*, etc.) are flagged as unverifiable rather than failed.
- */
-async function extractAndValidateTemplates(yamlContent) {
-  const results = [];
-  
-  // Match {{ ... }} template expressions (handles multiline)
-  const templateRegex = /\{\{[\s\S]*?\}\}/g;
-  // Match {% ... %} template blocks
-  const blockRegex = /\{%[\s\S]*?%\}/g;
-  
-  const templates = new Set();
-  
-  let match;
-  while ((match = templateRegex.exec(yamlContent)) !== null) {
-    templates.add(match[0]);
-  }
-  while ((match = blockRegex.exec(yamlContent)) !== null) {
-    templates.add(match[0]);
-  }
-  
-  // Context variables that can't be validated statically
-  const contextVars = [
-    "trigger.", "this.", "context.", "wait.", "repeat.", "response.",
-  ];
-
-  const truncate = (t) => t.substring(0, 100) + (t.length > 100 ? "..." : "");
-
-  const validateOne = async (template) => {
-    if (contextVars.some(v => template.includes(v))) {
-      return {
-        template: truncate(template),
-        status: "skipped",
-        reason: "Contains runtime context variables (trigger/this/wait/repeat) that cannot be validated statically.",
-      };
-    }
-
-    try {
-      const rendered = await callHA("/template", "POST", { template });
-      return {
-        template: truncate(template),
-        status: "valid",
-        result: String(rendered).substring(0, 200),
-      };
-    } catch (error) {
-      return {
-        template: truncate(template),
-        status: "error",
-        error: error.message,
-      };
-    }
-  };
-
-  // Validate concurrently in small batches to avoid hammering HA core
-  const queue = [...templates];
-  const batchSize = 5;
-  for (let i = 0; i < queue.length; i += batchSize) {
-    results.push(...await Promise.all(queue.slice(i, i + batchSize).map(validateOne)));
-  }
-
-  return results;
-}
-
 // Content-validation results are memoized briefly so the recommended
 // dry-run â†’ write workflow doesn't re-validate identical content twice
 const validationMemo = new Map();
@@ -2319,37 +2327,65 @@ const STATE_RESULT_CAP = 500;
 // narrowing a query should not cost the model results.
 const UNFILTERED_STATE_RESULT_CAP = 150;
 const HOME_CONTEXT_RESULT_CAP = 80;
-const HISTORY_RESULT_CAP = 200;
 const LOGBOOK_RESULT_CAP = 200;
+const HISTORY_CACHE_TTL_MS = 2 * 60 * 1000;
+const HISTORY_CACHE_MAX_ENTRIES = 2;
+const historyPageCache = new Map();
+
+function deleteHistoryCacheEntry(key) {
+  const cached = historyPageCache.get(key);
+  if (cached?.expiry_timer) clearTimeout(cached.expiry_timer);
+  historyPageCache.delete(key);
+}
+
+function cacheHistory(key, history, createdAt) {
+  while (historyPageCache.size >= HISTORY_CACHE_MAX_ENTRIES) {
+    deleteHistoryCacheEntry(historyPageCache.keys().next().value);
+  }
+  const cached = { created_at: createdAt, history, expiry_timer: null };
+  cached.expiry_timer = setTimeout(() => {
+    if (historyPageCache.get(key) === cached) historyPageCache.delete(key);
+  }, HISTORY_CACHE_TTL_MS);
+  cached.expiry_timer.unref?.();
+  historyPageCache.set(key, cached);
+}
 const DOCS_MAX_CHARS = 12000;
 const CHANGELOG_MAX_CHARS = 16000;
-const CLI_OUTPUT_MAX_CHARS = 20000;
 // Statistics and forecast responses are the large ones; generous enough to hold
 // a useful window without letting a single call swamp the context.
 const SERVICE_RESPONSE_MAX_CHARS = 20000;
 
-const server = new Server(
-  {
-    name: "home-assistant",
-    version: "2.8.0",
-    description: "OpenCode Home Assistant MCP server for configuration editing, diagnostics, admin workflows, and HA-native LLM readiness reporting.",
-  },
-  {
-    capabilities: {
-      tools: {
-        listChanged: false,
-      },
-      resources: {
-        subscribe: false,
-        listChanged: false,
-      },
-      prompts: {
-        listChanged: false,
-      },
-      logging: {},
+const requestHandlers = [];
+function registerRequestHandler(schema, handler) {
+  requestHandlers.push([schema, handler]);
+}
+
+function createMcpServer() {
+  const server = new Server(
+    {
+      name: "home-assistant",
+      version: "2.8.0",
+      description: "OpenCode Home Assistant MCP server for configuration editing, diagnostics, admin workflows, and HA-native LLM readiness reporting.",
     },
-  }
-);
+    {
+      capabilities: {
+        tools: {
+          listChanged: false,
+        },
+        resources: {
+          subscribe: false,
+          listChanged: false,
+        },
+        prompts: {
+          listChanged: false,
+        },
+        logging: {},
+      },
+    }
+  );
+  for (const [schema, handler] of requestHandlers) server.setRequestHandler(schema, handler);
+  return server;
+}
 
 // ============================================================================
 // TOOLS DEFINITION - With titles, outputSchema, and annotations
@@ -2559,7 +2595,7 @@ const TOOLS = [
   {
     name: "get_history",
     title: "Get Entity History",
-    description: "Get historical state data for entities. Essential for analyzing trends, debugging issues, or understanding patterns. History timestamps are returned in UTC.",
+    description: "Get historical state data for one entity. The default preserves Home Assistant's compact newest-200 history behavior. Use response_format='values' to retrieve every recorded row as compact state/timestamp pairs, or include_all_changes=true for full event rows. Fixed-bounds paging can traverse the complete response, and metadata includes a numeric summary over the complete response rather than only the current page. History timestamps are returned in UTC.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2577,7 +2613,32 @@ const TOOLS = [
         },
         minimal: {
           type: "boolean",
-          description: "Defaults to true (faster, less data). Set false to include full attribute payloads.",
+          description: "For event responses, defaults to true (faster, less data); set false to include full attributes. Values responses always omit attributes without collapsing repeated same-state rows.",
+        },
+        include_all_changes: {
+          type: "boolean",
+          description: "Set true to disable Home Assistant's significant/minimal change filtering and exclude the carry-in state from before start_time. Automatically true for response_format='values'.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_HISTORY_PAGE_LIMIT,
+          description: `Events to return per page (default ${DEFAULT_HISTORY_PAGE_LIMIT}). Compact values allow up to ${MAX_HISTORY_PAGE_LIMIT}; full events are capped at ${DEFAULT_HISTORY_PAGE_LIMIT} to bound attributes.`,
+        },
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description: "Events to skip from the selected edge before returning this page. Use meta.next_offset for the next page.",
+        },
+        page_from: {
+          type: "string",
+          enum: ["newest", "oldest"],
+          description: "Page backward from the newest event (default, preserving existing behavior) or forward from the oldest event. Events within each page remain chronological.",
+        },
+        response_format: {
+          type: "string",
+          enum: ["events", "values"],
+          description: `Return Home Assistant history events (default, maximum ${DEFAULT_HISTORY_PAGE_LIMIT}) or every recorded row as compact state/timestamp pairs (maximum ${MAX_HISTORY_PAGE_LIMIT}, attributes omitted). Paging and the complete-response numeric summary are available in both formats.`,
         },
       },
       required: ["entity_id"],
@@ -3813,7 +3874,7 @@ const TOOLS = [
   {
     name: "hab_run",
     title: "Run hab CLI Command",
-    description: "Run a Home Assistant Builder (hab) CLI command for dashboards, area/floor/zone/label/person/category management, helpers, backups, blueprints, calendars, todo lists, notifications, integrations, repairs, events, templates, devices, and search. Automation/script/scene API CRUD is available when specifically needed, but configuration edits default to YAML + write_config_safe followed by an approved domain reload via call_service and read-only verification. Needing a reload is not a reason to switch to API editing. Check 'automation --help' and subcommand help for supported payload/file options; do not guess flags or improvise JSON quoting. Output is human-readable by default; add --json for structured output. Examples: 'entity list --domain light --json', 'area create Kitchen', 'integration reload hue', 'repairs list --json'. Run 'help' for command groups.",
+    description: "Run a Home Assistant Builder (hab) CLI command for dashboards, area/floor/zone/label/person/category management, helpers, backups, blueprints, calendars, todo lists, notifications, integrations, repairs, events, templates, devices, and search. Automation/script/scene API CRUD is available when specifically needed, but configuration edits default to YAML + write_config_safe followed by an approved domain reload via call_service and read-only verification. Needing a reload is not a reason to switch to API editing. Check 'automation --help' and subcommand help for supported payload/file options; do not guess flags or improvise JSON quoting. Output is human-readable by default; add --json for structured output. When meta.truncated is true, meta.full_output_path contains the complete temporary output; never write a dashboard reconstructed from the preview. Examples: 'entity list --domain light --json', 'area create Kitchen', 'integration reload hue', 'repairs list --json'. Run 'help' for command groups.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4089,10 +4150,12 @@ async function getAgentCapabilities() {
 }
 
 async function probeNativeHaMcpReadiness() {
+  const signal = getRequestSignal();
   const baseProbe = probeNativeMcpEndpoint({
     supervisorToken: SUPERVISOR_TOKEN,
     baseUrl: SUPERVISOR_API,
     timeoutMs: NATIVE_MCP_PROBE_TIMEOUT_MS,
+    signal,
   });
   const configuredProbe = HA_NATIVE_MCP_API_ID
     ? probeNativeMcpEndpoint({
@@ -4100,6 +4163,7 @@ async function probeNativeHaMcpReadiness() {
       baseUrl: SUPERVISOR_API,
       apiId: HA_NATIVE_MCP_API_ID,
       timeoutMs: NATIVE_MCP_PROBE_TIMEOUT_MS,
+      signal,
     })
     : baseProbe;
   const assistProbe = HA_NATIVE_MCP_API_ID === NATIVE_MCP_ASSIST_API_ID
@@ -4109,6 +4173,7 @@ async function probeNativeHaMcpReadiness() {
       baseUrl: SUPERVISOR_API,
       apiId: NATIVE_MCP_ASSIST_API_ID,
       timeoutMs: NATIVE_MCP_PROBE_TIMEOUT_MS,
+      signal,
     });
 
   const [base, configured, assist] = await Promise.all([baseProbe, configuredProbe, assistProbe]);
@@ -4152,46 +4217,12 @@ function createCompactJsonContent(summary, data, meta = {}, options = {}) {
   });
 }
 
-function createCommandOutputContent(toolName, command, output, options = {}) {
-  const text = String(output ?? "").trim();
-  const baseMeta = { tool: toolName, command };
-
-  try {
-    const parsed = JSON.parse(text);
-    const rawJson = JSON.stringify(parsed);
-    if (rawJson.length <= CLI_OUTPUT_MAX_CHARS) {
-      return createCompactJsonContent(
-        `${toolName} command completed`,
-        parsed,
-        { ...baseMeta, format: "json", truncated: false, original_chars: rawJson.length },
-        options
-      );
-    }
-
-    const truncated = truncateText(rawJson, { maxChars: CLI_OUTPUT_MAX_CHARS });
-    return createCompactJsonContent(
-      `${toolName} command completed with large JSON output`,
-      { raw_json_preview: truncated.text },
-      { ...baseMeta, format: "json", ...truncated, text: undefined },
-      options
-    );
-  } catch {
-    const truncated = truncateText(text, { maxChars: CLI_OUTPUT_MAX_CHARS });
-    return createCompactJsonContent(
-      `${toolName} command completed`,
-      { output: truncated.text },
-      { ...baseMeta, format: "text", ...truncated, text: undefined },
-      options
-    );
-  }
-}
-
 // ============================================================================
 // REQUEST HANDLERS
 // ============================================================================
 
 // --- Logging: Set Level ---
-server.setRequestHandler(SetLevelRequestSchema, async (request) => {
+registerRequestHandler(SetLevelRequestSchema, async (request) => {
   const { level } = request.params;
   if (LOG_LEVELS.includes(level)) {
     currentLogLevel = level;
@@ -4225,7 +4256,7 @@ function isToolAvailable(name) {
     && getAvailableTools().some((tool) => tool.name === name);
 }
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+registerRequestHandler(ListToolsRequestSchema, async () => {
   sendLog("debug", "mcp-server", { action: "list_tools" });
   // Strip newer MCP spec fields that some clients may not support
   // Keep only: name, description, inputSchema (standard fields)
@@ -4239,9 +4270,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 // --- Call Tool ---
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+async function handleToolCall(request) {
   const { name, arguments: args } = request.params;
-  sendLog("info", "mcp-server", { action: "call_tool", tool: name, args: redactESPHomeToolArgs(name, args) });
+  sendLog("info", "mcp-server", { action: "call_tool", tool: name });
 
   // Helper to strip unsupported MCP features from response for OpenCode compatibility
   const makeCompatibleResponse = (result) => {
@@ -4482,41 +4513,118 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // === HISTORY & LOGBOOK ===
       case "get_history": {
         const entityId = args.entity_id;
+        const now = Date.now();
         const startTime = args.start_time === undefined
-          ? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+          ? new Date(now - 24 * 60 * 60 * 1000).toISOString()
           : requireTimezoneAwareTimestamp(args.start_time, "start_time");
         const endTime = args.end_time === undefined
-          ? null
+          ? new Date(now).toISOString()
           : requireTimezoneAwareTimestamp(args.end_time, "end_time");
+        const effectiveEndTime = Date.parse(endTime) > now ? new Date(now).toISOString() : endTime;
+        const endTimeClamped = effectiveEndTime !== endTime;
+        const responseFormat = args.response_format ?? "events";
+        const includeAllChanges = args.include_all_changes === true || responseFormat === "values";
+        const includeAttributes = responseFormat === "events" && args.minimal === false;
+        const minimal = !includeAttributes;
         const params = new URLSearchParams({ filter_entity_id: entityId });
-        if (endTime) params.append("end_time", endTime);
-        // Full attribute payloads are opt-in; minimal keeps chatty sensors cheap
-        if (args.minimal !== false) {
+        params.append("end_time", effectiveEndTime);
+        if (includeAllChanges) {
+          params.append("significant_changes_only", "0");
+          params.append("skip_initial_state", "true");
+        }
+        if (!includeAttributes && !includeAllChanges) {
+          // Core can use last_changed to skip attribute-only records when
+          // no_attributes is combined with skip_initial_state. Complete mode
+          // must retrieve full rows and remove attributes locally instead.
           params.append("minimal_response", "true");
           params.append("no_attributes", "true");
         }
 
-        const history = await callHA(`/history/period/${encodeURIComponent(startTime)}?${params}`);
+        const historyPath = `/history/period/${encodeURIComponent(startTime)}?${params}`;
+        const cacheable = !includeAttributes;
+        const cached = cacheable ? historyPageCache.get(historyPath) : null;
+        let history;
+        let historyCacheHit = false;
+        if (cached && now - cached.created_at < HISTORY_CACHE_TTL_MS) {
+          history = cached.history;
+          historyCacheHit = true;
+          historyPageCache.delete(historyPath);
+          historyPageCache.set(historyPath, cached);
+        } else {
+          if (cached) deleteHistoryCacheEntry(historyPath);
+          history = await callHA(historyPath);
+          if (includeAllChanges && !includeAttributes && Array.isArray(history)) {
+            history = history.map((states) => Array.isArray(states)
+              ? states.map(({ attributes: _attributes, ...state }) => state)
+              : states);
+          }
+          if (cacheable) cacheHistory(historyPath, history, now);
+        }
         const events = Array.isArray(history?.[0]) ? history[0] : [];
-        const truncated = events.length > HISTORY_RESULT_CAP;
-        const returnedEvents = truncated ? events.slice(-HISTORY_RESULT_CAP) : events;
-        const compactHistory = Array.isArray(history) && history.length > 0 ? [returnedEvents] : history;
+        const requestedLimit = args.limit ?? DEFAULT_HISTORY_PAGE_LIMIT;
+        const effectiveLimit = responseFormat === "values"
+          ? requestedLimit
+          : Math.min(requestedLimit, DEFAULT_HISTORY_PAGE_LIMIT);
+        const page = selectHistoryPage(events, {
+          offset: args.offset,
+          limit: effectiveLimit,
+          pageFrom: args.page_from,
+        });
+        const { items: pageItems, ...pageMeta } = page;
+        const responseData = responseFormat === "values"
+          ? projectHistoryValues(pageItems)
+          : (Array.isArray(history) && history.length > 0 ? [pageItems] : history);
+        const truncated = events.length > pageItems.length;
+        const range = pageItems.length > 0
+          ? `${page.first_event_index + 1}-${page.last_event_index + 1}`
+          : "empty";
         return makeCompatibleResponse({
           content: [createCompactJsonContent(
-            truncated
-              ? `Returned last ${returnedEvents.length} of ${events.length} history events for ${entityId}`
-              : `Returned ${events.length} history events for ${entityId}`,
-            compactHistory,
+            truncated && page.has_more
+              ? `Returned history events ${range} of ${events.length} for ${entityId}; use meta.continuation to continue`
+              : (truncated
+                ? `Returned final history page ${range} of ${events.length} for ${entityId}`
+                : `Returned ${events.length} history events for ${entityId}`),
+            responseData,
             {
               entity_id: entityId,
               start_time: startTime,
-              end_time: endTime,
+              end_time: args.end_time === undefined ? null : endTime,
+              effective_end_time: effectiveEndTime,
+              end_time_clamped_to_now: endTimeClamped,
               input_time_requirement: "RFC 3339 timestamp with Z or UTC offset",
               response_time_reference: "UTC",
-              minimal: args.minimal !== false,
+              minimal,
+              include_all_changes: includeAllChanges,
+              response_format: responseFormat,
+              requested_limit: requestedLimit,
+              effective_limit: page.limit,
+              limit_clamped_for_format: requestedLimit !== page.limit,
               total_events: events.length,
-              returned_events: returnedEvents.length,
+              returned_events: pageItems.length,
               truncated,
+              has_more: page.has_more,
+              next_offset: page.next_offset,
+              continuation: page.next_offset === null ? null : {
+                entity_id: entityId,
+                start_time: startTime,
+                end_time: effectiveEndTime,
+                minimal,
+                include_all_changes: includeAllChanges,
+                limit: page.limit,
+                offset: page.next_offset,
+                page_from: page.page_from,
+                response_format: responseFormat,
+              },
+              paging_consistency: "fixed_time_bounds; recorder backfills or purges between calls may shift offsets",
+              page: pageMeta,
+              history_cache_hit: historyCacheHit,
+              history_cache_ttl_seconds: cacheable ? HISTORY_CACHE_TTL_MS / 1000 : 0,
+              numeric_summary: summarizeNumericHistory(events, {
+                scope: includeAllChanges
+                  ? "complete_requested_window"
+                  : "home_assistant_default_history_including_carry_in",
+              }),
             },
             { audience: ["assistant"], priority: 0.7, pretty: false }
           )],
@@ -5140,8 +5248,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           });
         }
         
-        // Steps 2-6 depend only on the content â€” reuse a recent dry-run's results
-        const memoKey = createHash("sha256").update(`${validate_templates}:${content}`).digest("hex");
+        // Template validation depends on the current file as well as the proposed content.
+        let previousContent = null;
+        if (validate_templates && existsSync(resolvedPath)) {
+          try { previousContent = readFileSync(resolvedPath, "utf-8"); } catch (_) { /* validate without a baseline */ }
+        }
+        const memoKey = createHash("sha256")
+          .update(JSON.stringify([resolvedPath, validate_templates, previousContent, content])).digest("hex");
         let contentChecks = getValidationMemo(memoKey);
 
         if (!contentChecks) {
@@ -5189,7 +5302,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             (async () => {
               if (!validate_templates) return [];
               try {
-                return await extractAndValidateTemplates(content);
+                return await validateConfigTemplates(content, {
+                  previousContent,
+                  render: (template) => callHA("/template", "POST", { template }),
+                });
               } catch (error) {
                 sendLog("warning", "config", { action: "template_validation_failed", error: error.message });
                 return [{ template: "(all)", status: "skipped", reason: `Template validation unavailable: ${error.message}` }];
@@ -5334,7 +5450,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             responseText += `## Template Validation\n\n`;
             responseText += `- Valid: ${validTemplates.length}\n`;
             responseText += `- Errors: ${templateErrors.length}\n`;
-            responseText += `- Skipped (runtime context): ${skippedTemplates.length}\n\n`;
+            responseText += `- Skipped (unchanged or runtime-dependent): ${skippedTemplates.length}\n\n`;
           }
           
           if (depSuggestions.length > 0) {
@@ -5806,7 +5922,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "get_backup_posture": {
         const limit = clampSupervisorLimit(args?.limit, SUPERVISOR_DEFAULT_LIST_LIMIT, SUPERVISOR_MAX_LIST_LIMIT);
         sendLog("debug", "supervisor-read", { action: "get_backup_posture", limit });
-        const data = projectBackupPosture(await callSupervisor("/backups/info"), { limit });
+        const info = await callSupervisor("/backups/info");
+        let coreBackups;
+        try {
+          coreBackups = (await callHAWebSocketCommand("backup/info", API_TIMEOUT_MS, SUPERVISOR_WEBSOCKET_URL.toString()))?.backups;
+        } catch {
+          // A missing Core agent inventory is unknown, not the smaller count
+          // from Supervisor's cloud-filtered `locations` array.
+          sendLog("warning", "supervisor-read", { action: "backup_agents_unavailable" });
+        }
+        const data = projectBackupPosture(info, { limit, coreBackups });
         return makeCompatibleResponse({
           content: [createCompactJsonContent(
             "Returned bounded Home Assistant backup posture",
@@ -6093,16 +6218,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         
         try {
           const job = await callSupervisor(`/jobs/${job_id}`);
+          const hasErrors = hasJobErrors(job);
           
           let statusEmoji;
           if (job.done) {
-            statusEmoji = job.errors ? "âŒ" : "âœ…";
+            statusEmoji = hasErrors ? "âŒ" : "âœ…";
           } else {
             statusEmoji = "â³";
           }
           
           let responseText = `# Job Progress: ${job_id}\n\n`;
-          responseText += `**Status:** ${statusEmoji} ${job.done ? (job.errors ? 'Failed' : 'Completed') : 'In Progress'}\n`;
+          responseText += `**Status:** ${statusEmoji} ${job.done ? (hasErrors ? 'Failed' : 'Completed') : 'In Progress'}\n`;
           responseText += `**Name:** ${job.name}\n`;
           responseText += `**Progress:** ${job.progress || 0}%\n`;
           
@@ -6123,13 +6249,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           if (job.child_jobs && job.child_jobs.length > 0) {
             responseText += `## Sub-tasks\n\n`;
             for (const child of job.child_jobs) {
-              const childStatus = child.done ? (child.errors ? "âŒ" : "âœ…") : "â³";
+              const childStatus = child.done ? (hasJobErrors(child) ? "âŒ" : "âœ…") : "â³";
               responseText += `- ${childStatus} ${child.name}: ${child.progress || 0}%\n`;
             }
             responseText += `\n`;
           }
           
-          if (job.errors) {
+          if (hasErrors) {
             responseText += `## Errors\n\n`;
             responseText += `\`\`\`\n${JSON.stringify(job.errors, null, 2)}\n\`\`\`\n`;
           }
@@ -6142,9 +6268,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             content: [
               createTextContent(responseText, { audience: ["user", "assistant"], priority: 0.9 }),
               createCompactJsonContent(
-                `Job ${job.done ? (job.errors ? "failed" : "completed") : "in progress"}`,
+                `Job ${job.done ? (hasErrors ? "failed" : "completed") : "in progress"}`,
                 job,
-                { job_id, done: !!job.done, has_errors: !!job.errors },
+                { job_id, done: !!job.done, has_errors: hasErrors },
                 { audience: ["assistant"], priority: 0.6, pretty: false }
               ),
             ],
@@ -6185,7 +6311,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               responseText += `| Job ID | Name | Status |\n`;
               responseText += `|--------|------|--------|\n`;
               for (const job of completedJobs.slice(0, 10)) {
-                const status = job.errors ? "âŒ Failed" : "âœ… Success";
+                const status = hasJobErrors(job) ? "âŒ Failed" : "âœ… Success";
                 responseText += `| ${job.uuid.substring(0, 8)}... | ${job.name} | ${status} |\n`;
               }
             }
@@ -6817,12 +6943,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("Self-update of hab is not supported inside the container. hab is updated with the add-on.");
         }
         
-        sendLog("info", "hab", { action: "run_command", command });
-        
         // Parse command string into args array for execFile (safe, no shell injection)
         const cmdArgs = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')/g) || [];
         // Strip quotes from args
         const cleanArgs = cmdArgs.map(arg => arg.replace(/^["']|["']$/g, ""));
+        sendLog("info", "hab", { action: "run_command", argument_count: cleanArgs.length });
         
         // For esphome subcommands, pre-discover the ESPHome ingress URL so
         // hab can skip its own (broken direct-connection) discovery and route
@@ -6849,31 +6974,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         }
         
-        const result = await new Promise((resolvePromise, rejectPromise) => {
-          const proc = execFile("/usr/local/bin/hab", cleanArgs, {
-            timeout: 30000,
+        let result;
+        try {
+          result = await runCancellableExecFile("/usr/local/bin/hab", cleanArgs, {
+            timeoutMs: 30000,
             maxBuffer: 1024 * 1024,
             env: {
               ...process.env,
-              SUPERVISOR_TOKEN: SUPERVISOR_TOKEN,
+              SUPERVISOR_TOKEN,
               HAB_URL: "http://supervisor/core",
               HAB_TOKEN: SUPERVISOR_TOKEN,
               ...(HA_ACCESS_TOKEN ? { HA_ACCESS_TOKEN } : {}),
               ...esphomeEnv,
             },
-          }, (error, stdout, stderr) => {
-            if (error) {
-              // hab may return non-zero exit code with useful output
-              const output = stdout || stderr || error.message;
-              rejectPromise(new Error(`hab command failed: ${output}`));
-            } else {
-              resolvePromise(stdout);
-            }
           });
-        });
+        } catch (error) {
+          throwIfRequestCancelled();
+          throw new Error(`hab command failed: ${error.stdout || error.stderr || error.message}`);
+        }
         
         return makeCompatibleResponse({
-          content: [createCommandOutputContent("hab", command, result, { audience: ["user", "assistant"], priority: 0.7 })],
+          content: [createCommandOutputContent("hab", command, result, {
+            audience: ["user", "assistant"], priority: 0.7,
+            saveLargeOutput: saveHabOutput,
+          })],
         });
       }
 
@@ -6898,50 +7022,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           );
         }
 
-        sendLog("info", "zigporter", { action: "run_command", command });
-
         // Parse command string into args array for execFile (safe, no shell injection)
         const zigCmdArgs =
           command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')/g) || [];
         const zigCleanArgs = zigCmdArgs.map((arg) =>
           arg.replace(/^["']|["']$/g, "")
         );
+        sendLog("info", "zigporter", { action: "run_command", argument_count: zigCleanArgs.length });
 
-        const zigResult = await new Promise((resolvePromise, rejectPromise) => {
-          execFile(
-            "/usr/local/bin/zigporter",
-            zigCleanArgs,
-            {
-              timeout: 60000,
-              maxBuffer: 2 * 1024 * 1024,
-              env: {
-                ...process.env,
-                // zigporter uses HA_URL + HA_TOKEN. HA_TOKEN is derived from
-                // the live Supervisor token and is intentionally not persisted.
-                HA_URL: process.env.HA_URL || "http://supervisor/core",
-                HA_TOKEN: process.env.HA_TOKEN || process.env.SUPERVISOR_TOKEN,
-                HA_VERIFY_SSL: "false",
-                // Z2M config (optional, may be empty)
-                ...(process.env.Z2M_URL
-                  ? { Z2M_URL: process.env.Z2M_URL }
-                  : {}),
-                ...(process.env.Z2M_MQTT_TOPIC
-                  ? { Z2M_MQTT_TOPIC: process.env.Z2M_MQTT_TOPIC }
-                  : {}),
-              },
+        let zigResult;
+        try {
+          zigResult = await runCancellableExecFile("/usr/local/bin/zigporter", zigCleanArgs, {
+            timeoutMs: 60000,
+            maxBuffer: 2 * 1024 * 1024,
+            env: {
+              ...process.env,
+              HA_URL: process.env.HA_URL || "http://supervisor/core",
+              HA_TOKEN: process.env.HA_TOKEN || process.env.SUPERVISOR_TOKEN,
+              HA_VERIFY_SSL: "false",
+              ...(process.env.Z2M_URL ? { Z2M_URL: process.env.Z2M_URL } : {}),
+              ...(process.env.Z2M_MQTT_TOPIC ? { Z2M_MQTT_TOPIC: process.env.Z2M_MQTT_TOPIC } : {}),
             },
-            (error, stdout, stderr) => {
-              if (error) {
-                const output = stdout || stderr || error.message;
-                rejectPromise(
-                  new Error(`zigporter command failed: ${output}`)
-                );
-              } else {
-                resolvePromise(stdout);
-              }
-            }
-          );
-        });
+          });
+        } catch (error) {
+          throwIfRequestCancelled();
+          throw new Error(`zigporter command failed: ${error.stdout || error.stderr || error.message}`);
+        }
 
         return makeCompatibleResponse({
           content: [
@@ -7007,6 +7113,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Unknown tool: ${name}`);
     }
   } catch (error) {
+    throwIfRequestCancelled();
     const safeErrorMessage = name.startsWith("esphome_")
       ? redactESPHomeSensitiveText(error.message)
       : error.message;
@@ -7016,21 +7123,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       isError: true,
     });
   }
-});
+}
+
+registerRequestHandler(CallToolRequestSchema, (request, extra) =>
+  withRequestSignal(extra.signal, () => handleToolCall(request))
+);
 
 // --- List Resources ---
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
+registerRequestHandler(ListResourcesRequestSchema, async () => {
   sendLog("debug", "mcp-server", { action: "list_resources" });
   return { resources: RESOURCES };
 });
 
 // --- List Resource Templates ---
-server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+registerRequestHandler(ListResourceTemplatesRequestSchema, async () => {
   return { resourceTemplates: RESOURCE_TEMPLATES };
 });
 
 // --- Read Resource ---
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+registerRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
   sendLog("debug", "mcp-server", { action: "read_resource", uri });
   
@@ -7271,13 +7382,13 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 });
 
 // --- List Prompts ---
-server.setRequestHandler(ListPromptsRequestSchema, async () => {
+registerRequestHandler(ListPromptsRequestSchema, async () => {
   sendLog("debug", "mcp-server", { action: "list_prompts" });
   return { prompts: PROMPTS };
 });
 
 // --- Get Prompt ---
-server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+registerRequestHandler(GetPromptRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   sendLog("info", "mcp-server", { action: "get_prompt", prompt: name });
   
@@ -7488,8 +7599,75 @@ Provide complete automation YAML and any required helper entities.`,
 // ============================================================================
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  let close;
+  let readyFile;
+  if (process.env.OPENCODE_MCP_TRANSPORT === "streamable-http") {
+    const socketPath = process.env.OPENCODE_MCP_SIDECAR_SOCKET;
+    const host = process.env.OPENCODE_MCP_SIDECAR_HOST || "127.0.0.1";
+    const portText = process.env.OPENCODE_MCP_SIDECAR_PORT || "3000";
+    if (!/^\d+$/.test(portText)) throw new Error("Invalid OPENCODE_MCP_SIDECAR_PORT");
+    const nativeMcpHandler = NATIVE_HA_MCP_BRIDGE_ENABLED
+      ? createNativeMcpHandler({
+        supervisorToken: SUPERVISOR_TOKEN,
+        baseUrl: SUPERVISOR_API,
+        apiId: HA_NATIVE_MCP_API_ID,
+        endpointMode: process.env.HA_NATIVE_MCP_ENDPOINT_MODE,
+        sanitizeSchemas: process.env.HA_NATIVE_MCP_SANITIZE_SCHEMAS !== "0",
+        onLog: (level, message, details) => sendLog(level, "native-mcp", {
+          action: "bridge_status",
+          message,
+          ...details,
+        }),
+      })
+      : null;
+    const listener = await startAuthenticatedStreamableHttp(createMcpServer, {
+      secretFile: process.env.OPENCODE_MCP_SIDECAR_SECRET_FILE,
+      host,
+      port: Number(portText),
+      socketPath,
+      publicHost: process.env.OPENCODE_MCP_SIDECAR_PUBLIC_HOST,
+      jsonRpcHandlers: nativeMcpHandler ? { "/native-mcp": nativeMcpHandler } : {},
+    });
+    close = () => listener.close();
+    readyFile = process.env.OPENCODE_MCP_SIDECAR_READY_FILE;
+    if (readyFile) {
+      const temporaryReadyFile = `${readyFile}.${process.pid}.tmp`;
+      try {
+        const processStat = readFileSync("/proc/self/stat", "utf8");
+        const commandEnd = processStat.lastIndexOf(") ");
+        const statFields = commandEnd >= 0 ? processStat.slice(commandEnd + 2).trim().split(/\s+/) : [];
+        const startTime = statFields[19];
+        if (!/^\d+$/.test(startTime ?? "")) throw new Error("Cannot resolve sidecar process identity");
+        writeFileSync(temporaryReadyFile, `${process.pid} ${startTime}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+        renameSync(temporaryReadyFile, readyFile);
+      } catch (error) {
+        try { unlinkSync(temporaryReadyFile); } catch {}
+        await close();
+        throw error;
+      }
+    }
+  } else {
+    const server = createMcpServer();
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    close = () => server.close();
+  }
+
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      if (readyFile) {
+        try { unlinkSync(readyFile); } catch {}
+      }
+      await close();
+    } catch {
+      process.exitCode = 1;
+    }
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
   
   sendLog("info", "mcp-server", { 
     action: "started",

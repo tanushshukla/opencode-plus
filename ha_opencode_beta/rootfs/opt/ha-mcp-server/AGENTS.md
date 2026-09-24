@@ -201,6 +201,11 @@ Run `hab --help` or `hab <command> --help` for full usage.
 
 ### 4. zigporter CLI (Zigbee toolkit)
 
+In the V2 beta, use the `zigporter_run` MCP tool for these commands. Its sidecar
+supplies credentials; the agent shell intentionally does not inherit them.
+Do not run setup or create credential files. If the current profile does not
+expose the tool, report that limitation and use available read-only MCP tools.
+
 Zigbee device management, and the only tool here that **cascades a rename**
 across automations, scripts, scenes and every Lovelace dashboard atomically.
 `hab` renames one thing and leaves the references dangling. Also handles device

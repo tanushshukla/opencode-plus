@@ -37,10 +37,9 @@ function writeIfChanged(filePath, content) {
   }
 }
 
-const globalRoot = execFileSync("npm", ["root", "-g"], {
+const packageRoot = process.argv[2] || path.join(execFileSync("npm", ["root", "-g"], {
   encoding: "utf8",
-}).trim();
-const packageRoot = path.join(globalRoot, "@openchamber", "web");
+}).trim(), "@openchamber", "web");
 const distDir = path.join(packageRoot, "dist");
 const assetsDir = path.join(distDir, "assets");
 const indexPath = path.join(distDir, "index.html");

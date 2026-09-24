@@ -27,7 +27,8 @@ jobs:
       # re-running scripts/apply-plus.sh. .gitignore and the stable CHANGELOG
       # conflict on nearly every upstream release (both sides append/prepend);
       # their fork deltas are restored from scripts/apply-plus.sh (changelog
-      # entries live in the fork-only ha_opencode/CHANGELOG-PLUS.md).
+      # entries live in the fork-only ha_opencode/CHANGELOG-PLUS.md). Every
+      # upstream file scripts/apply-plus.sh edits must be listed here.
       MANAGED_FILES: |
         .gitignore
         ha_opencode/CHANGELOG.md
@@ -36,6 +37,8 @@ jobs:
         ha_opencode/Dockerfile
         ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-opencode/run
         ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber/run
+        ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber-ingress/run
+        ha_opencode/test/runtime-contract.test.js
         README.md
         repository.yaml
       # Fork release policy. Upstream uses a different branch/channel model,
@@ -96,8 +99,14 @@ jobs:
             [ -z "$file" ] && continue
 
             if grep -qxF "$file" <<< "$MANAGED_FILES"; then
-              git checkout --theirs -- "$file"
-              git add -- "$file"
+              # Upstream may delete a managed file (modify/delete conflict);
+              # follow upstream's deletion.
+              if git cat-file -e "MERGE_HEAD:$file" 2>/dev/null; then
+                git checkout --theirs -- "$file"
+                git add -- "$file"
+              else
+                git rm -f --quiet -- "$file"
+              fi
             elif [[ "$file" == .github/workflows/* ]] || grep -qxF "$file" <<< "$FORK_FILES"; then
               # These paths contain fork-specific registry, channel, and
               # release behavior. Keep this fork's version during conflicts.

@@ -172,9 +172,8 @@ describe(`${CHANNEL} managed skill deployment`, () => {
       assert.ok(fs.existsSync(path.join(realTarget, "skills", skill, "SKILL.md")));
     }
     assert.equal(fs.existsSync(path.join(realTarget, "agents")), false);
-    // The agent file still ships; ha-readonly reads its prompt straight from
-    // the image rather than from a deployed copy.
-    assert.ok(fs.existsSync(path.join(SHIPPED_MCP_DIR, "agents", AGENT_FILE)));
+    // The managed V2 agent is defined in native policy, not a V1 overlay file.
+    assert.equal(fs.existsSync(path.join(SHIPPED_MCP_DIR, "agents", AGENT_FILE)), false);
   });
 });
 

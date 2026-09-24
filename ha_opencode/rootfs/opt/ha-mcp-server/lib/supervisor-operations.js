@@ -61,13 +61,17 @@ function projectResolutionRecord(record) {
   };
 }
 
+export function hasJobErrors(job) {
+  return asArray(job?.errors).length > 0;
+}
+
 function projectJobs(jobs) {
   const records = asArray(jobs);
   return {
     total: records.length,
     active: records.filter((job) => !job?.done).length,
     completed: records.filter((job) => job?.done).length,
-    failed: records.filter((job) => job?.done && asArray(job?.errors).length > 0).length,
+    failed: records.filter((job) => job?.done && hasJobErrors(job)).length,
   };
 }
 
@@ -174,8 +178,15 @@ export function projectResolution(info, { limit = DEFAULT_LIST_LIMIT } = {}) {
 }
 
 /** Return a bounded backup inventory without storage paths or repository data. */
-export function projectBackupPosture(info, { limit = DEFAULT_LIST_LIMIT, now = Date.now() } = {}) {
+export function projectBackupPosture(info, { limit = DEFAULT_LIST_LIMIT, now = Date.now(), coreBackups } = {}) {
   const cappedLimit = clampInteger(limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT);
+  // Supervisor intentionally hides cloud from `locations` when a local copy
+  // exists. Core's backup agent map is the authority for copy counts.
+  const agentCounts = new Map(asArray(coreBackups).flatMap((backup) => {
+    if (typeof backup?.backup_id !== "string" || !backup.agents ||
+        typeof backup.agents !== "object" || Array.isArray(backup.agents)) return [];
+    return [[backup.backup_id, Object.keys(backup.agents).length]];
+  }));
   const backups = asArray(info?.backups)
     .slice()
     .sort((left, right) => (dateMillis(right?.date) || 0) - (dateMillis(left?.date) || 0));
@@ -197,7 +208,7 @@ export function projectBackupPosture(info, { limit = DEFAULT_LIST_LIMIT, now = D
       includes_homeassistant: flag(backup?.content?.homeassistant),
       app_count: asArray(backup?.content?.addons).length,
       folder_count: asArray(backup?.content?.folders).length,
-      location_count: asArray(backup?.locations).length,
+      location_count: agentCounts.get(backup?.slug) ?? null,
     })),
   };
 }

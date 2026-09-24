@@ -4,19 +4,66 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 <!-- opencode-plus overlay: begin -->
+## 3.0.6.1
+
+- **Carry the OpenCode+ overlay onto OpenCode V2 stable (3.0.6)** — the image/voice wrapper stays on loopback port 8101 behind the shared ingress router and now follows the interface mode resolved at startup (`/data/.interface_mode`), matching upstream's router. The upstream sync now auto-resolves conflicts in every upstream file the overlay patches, including files upstream deletes.
+
 ## 2.5.5.2
 
 - **Fix add-on crash loop on port 8099 (OpenCode+ overlay)** — upstream 2.5.5 moved the shared ingress router (`ha-openchamber-ingress`) onto port 8099 for both interface modes, colliding with the OpenCode+ image/voice wrapper that also listened there. The router now crashed repeatedly with `EADDRINUSE` and the wrapper showed "Terminal backend unavailable". The wrapper now runs on loopback port 8101 behind the router, which is patched to use it as its upstream; the wrapper proxies to ttyd (8100) or OpenChamber (3010) and forwards absolute paths so ingress-rewritten asset URLs and the quit control keep working.
 <!-- opencode-plus overlay: end -->
 
+## 3.0.6
+
+- **Keep complete large hab results for safe dashboard edits ([#128](https://github.com/magnusoverli/opencode/issues/128))** — when `hab_run` exceeds its 20,000-character inline limit, its response now includes `meta.full_output_path` for the entire result in a private, temporary runtime file. The preview stays bounded; agents can transform the complete dashboard locally instead of saving a reconstruction with missing content. Old exports are pruned on subsequent exports or cleared at container restart.
+
+## 3.0.5
+
+- **Fix OpenAI browser sign-in in OpenChamber** — bridge OpenCode V2's localhost OAuth callback through an Ingress handoff page. After OpenAI redirects to an unreachable `localhost` URL, paste that full URL into the handoff page to deliver the callback inside the add-on; OpenChamber then completes its normal sign-in polling. The callback URL and authorization code are not written to logs.
+
+## 3.0.4
+
+- **Restore stable decision-note access ([#126](https://github.com/magnusoverli/opencode/issues/126))** — run the stable Home Assistant MCP sidecar with the stable channel and `/homeassistant/opencode` decision-notes directory. Stable `recall_decisions` and `remember_decision` now use the same notes as the stable session briefing; beta's separate notes remain untouched.
+
+## 3.0.3
+
+- **Correct backup copy counts ([#123](https://github.com/magnusoverli/opencode/issues/123))** — `get_backup_posture` counts Home Assistant backup agents so a local-plus-cloud backup reports both copies. When the Core agent inventory is unavailable, the count is unknown instead of an undercount; storage locations remain omitted.
+- **Fix safe-write template false positives ([#124](https://github.com/magnusoverli/opencode/issues/124))** — validate complete YAML template scalars rather than isolated Jinja tags, skip unchanged templates from the existing file, and avoid rejecting new templates that require automation runtime variables to render. Changed template syntax errors still block writes, and Home Assistant's full config check still runs after a write.
+
+## 3.0.2
+
+- **Fix V1-to-V2 conversation migration ([#122](https://github.com/magnusoverli/opencode/issues/122))** — calculate the session cost total with the same sequential floating-point addition as OpenCode V2. Python's newer `sum()` uses compensated addition and could falsely reject an otherwise intact conversation with `session_projection_mismatch (fields: cost)`. The exact aggregate and individual message checks remain in place; the original state is preserved if any other validation fails.
+
+## 3.0.1
+
+- **V2 upgrade recovery ([#122](https://github.com/magnusoverli/opencode/issues/122))** — corrected the session validator's ordering of equal-time messages with mixed-case IDs to match OpenCode V2's migration. This can prevent a false `session_projection_mismatch` when a session's agent or model is inferred from its latest user message.
+- If migration still cannot be validated, startup logs now identify the differing session *column names* without exposing their values, and the terminal shows a persistent explanation instead of `[exited]`. Existing V1 data remains intact for a retry or restoration from backup.
+
+## 3.0.0
+
+🥳 **OpenCode V2 has arrived!** A major upgrade for your Home Assistant assistant, with a refreshed OpenChamber experience and a shared backend that keeps your conversations together.
+
+### Highlights
+
+- **One backend, two interfaces:** the terminal and OpenChamber now share the same app-managed OpenCode V2 runtime and conversation history.
+- **A better web workspace:** refreshed OpenChamber, YAML completion and diagnostics, corrected Usage reporting, and last-used model selection for new chats.
+- **Stronger Home Assistant integration:** credential-isolated tools, reliable concurrent MCP sessions, native YAML formatting, and improved cancellation and update reporting.
+- **Secure optional LAN access:** separately authenticated frontends behind your trusted HTTPS reverse proxy.
+
+### Before upgrading
+
+- **Create a Home Assistant backup first.** Existing stable conversation history migrates on first startup; returning to V1 requires restoring your pre-upgrade backup.
+- **Sign in to providers again.** V1 browser/OAuth sign-ins are not imported; API keys configured in app options are handled separately.
+- **Review LAN and custom configuration settings.** LAN access now requires authentication and HTTPS-proxy settings. Unsupported custom configuration is rejected with an explanation.
+- Components update through **Home Assistant Supervisor**. Beta and stable retain separate histories and sign-ins; installing stable does not import your beta data.
+- The V1 browser-terminal quit overlay is retired; use the terminal's own exit action.
+
+See the [upgrade guide](https://github.com/magnusoverli/opencode/blob/v3.0.0/ha_opencode/DOCS.md#upgrading-from-2x) for migration, recovery and current limitations, including custom-skill discovery.
+
 ## 2.5.6
 
 - Fixed screenshot authentication and now report login, navigation, or frontend-readiness failures instead of successful dashboard captures (#121).
 - Devcontainer builds now tolerate Windows line endings in build metadata.
-
-## 2.5.5.2
-
-- **Fix add-on crash loop on port 8099 (OpenCode+ overlay)** — upstream 2.5.5 moved the shared ingress router (`ha-openchamber-ingress`) onto port 8099 for both interface modes, colliding with the OpenCode+ image/voice wrapper that also listened there. The router now crashed repeatedly with `EADDRINUSE` and the wrapper showed "Terminal backend unavailable". The wrapper now runs on loopback port 8101 behind the router, which is patched to use it as its upstream; the wrapper proxies to ttyd (8100) or OpenChamber (3010) and forwards absolute paths so ingress-rewritten asset URLs and the quit control keep working.
 
 ## 2.5.5
 

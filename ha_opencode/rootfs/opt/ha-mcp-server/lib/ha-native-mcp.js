@@ -1,3 +1,5 @@
+import { createOperationSignal } from "./cancellation.js";
+
 const DEFAULT_SUPERVISOR_API = "http://supervisor/core/api";
 
 export const NATIVE_MCP_ASSIST_API_ID = "assist";
@@ -80,6 +82,8 @@ export async function requestNativeMcp({
   apiId = null,
   message,
   timeoutMs = 60000,
+  signal,
+  protocolVersion = NATIVE_MCP_PROTOCOL_VERSION,
 } = {}) {
   if (!supervisorToken) {
     throw new Error("SUPERVISOR_TOKEN is required for Home Assistant native MCP");
@@ -87,43 +91,51 @@ export async function requestNativeMcp({
   if (!message || typeof message !== "object") {
     throw new Error("A JSON-RPC message object is required");
   }
+  const forwardedProtocolVersion = /^\d{4}-\d{2}-\d{2}$/.test(protocolVersion ?? "")
+    ? protocolVersion
+    : NATIVE_MCP_PROTOCOL_VERSION;
 
   const endpoint = buildNativeMcpUrl({ baseUrl, apiId });
-  const response = await fetchImpl(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${supervisorToken}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      // Required of MCP clients from protocol revision 2025-06-18 onward. Home
-      // Assistant does not read it today — its streamable endpoint is stateless
-      // and checks only Accept and Content-Type — but the Supervisor proxy
-      // explicitly forwards this header, so sending it costs nothing and keeps
-      // the bridge correct if Core starts enforcing it.
-      "MCP-Protocol-Version": NATIVE_MCP_PROTOCOL_VERSION,
-    },
-    body: JSON.stringify(message),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const operation = createOperationSignal(timeoutMs, signal);
+  try {
+    const response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${supervisorToken}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        // Required of MCP clients from protocol revision 2025-06-18 onward. Home
+        // Assistant does not read it today — its streamable endpoint is stateless
+        // and checks only Accept and Content-Type — but the Supervisor proxy
+        // explicitly forwards this header, so sending it costs nothing and keeps
+        // the bridge correct if Core starts enforcing it.
+        "MCP-Protocol-Version": forwardedProtocolVersion,
+      },
+      body: JSON.stringify(message),
+      signal: operation.signal,
+    });
 
-  const text = await response.text();
-  let json = null;
-  if (text.trim()) {
-    try {
-      json = JSON.parse(text);
-    } catch {
-      // Keep the raw text for diagnostics; callers decide how to handle it.
+    const text = await response.text();
+    let json = null;
+    if (text.trim()) {
+      try {
+        json = JSON.parse(text);
+      } catch {
+        // Keep the raw text for diagnostics; callers decide how to handle it.
+      }
     }
-  }
 
-  return {
-    endpoint,
-    ok: response.ok,
-    status: response.status,
-    statusText: response.statusText,
-    text,
-    json,
-  };
+    return {
+      endpoint,
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      text,
+      json,
+    };
+  } finally {
+    operation.cleanup();
+  }
 }
 
 export async function probeNativeMcpEndpoint({
@@ -132,6 +144,7 @@ export async function probeNativeMcpEndpoint({
   baseUrl = DEFAULT_SUPERVISOR_API,
   apiId,
   timeoutMs = 5000,
+  signal,
 } = {}) {
   const endpoint = buildNativeMcpUrl({ baseUrl, apiId });
   const probe = {
@@ -161,6 +174,7 @@ export async function probeNativeMcpEndpoint({
       apiId,
       message: createNativeMcpInitializeMessage(),
       timeoutMs,
+      signal,
     });
 
     const detail = response.text ? response.text.slice(0, 500) : response.statusText;
@@ -222,6 +236,7 @@ export async function probeNativeMcpEndpoint({
       detail: detail || "Native Home Assistant MCP endpoint returned an unexpected response.",
     };
   } catch (error) {
+    if (signal?.aborted) throw error;
     return {
       ...probe,
       status: error?.name === "TimeoutError" ? "timeout" : "request_error",
@@ -357,7 +372,7 @@ export function createNativeMcpForwarder({
   // for as long as the add-on runs.
   let reportedFallback = false;
 
-  async function request(message, requestApiId) {
+  async function request(message, requestApiId, signal, protocolVersion) {
     return requestNativeMcp({
       fetchImpl,
       supervisorToken,
@@ -365,6 +380,8 @@ export function createNativeMcpForwarder({
       apiId: requestApiId,
       message,
       timeoutMs,
+      signal,
+      protocolVersion,
     });
   }
 
@@ -391,13 +408,13 @@ export function createNativeMcpForwarder({
     get endpoint() {
       return buildNativeMcpUrl({ baseUrl, apiId: activeApiId });
     },
-    async send(message) {
+    async send(message, { signal, protocolVersion } = {}) {
       const id = message?.id;
 
       try {
         maybeRetryKeyedEndpoint();
 
-        const response = await request(message, activeApiId);
+        const response = await request(message, activeApiId, signal, protocolVersion);
 
         if (mode !== "auto" || !activeApiId || response.status !== 404) {
           // A keyed request that did not 404 means a retry has succeeded and
@@ -445,7 +462,10 @@ export function createNativeMcpForwarder({
           });
         }
 
-        return mapNativeMcpResponse(await request(message, activeApiId), id);
+        return mapNativeMcpResponse(
+          await request(message, activeApiId, signal, protocolVersion),
+          id,
+        );
       } catch (error) {
         if (id === undefined) return null;
         return createJsonRpcError(id, -32000, "Home Assistant native MCP request failed", {

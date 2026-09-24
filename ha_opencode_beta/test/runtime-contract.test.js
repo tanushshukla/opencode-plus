@@ -111,6 +111,24 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.match(dockerfile, /test ! -e \/usr\/local\/lib\/node_modules\/opencode-ai/);
   });
 
+  it("locks the standalone PPQ tree to channel pins without the unused OpenClaw peer", () => {
+    const pkg = JSON.parse(read(ROOTFS, "opt", "ppq-private-runtime", "package.json"));
+    const lock = JSON.parse(read(ROOTFS, "opt", "ppq-private-runtime", "package-lock.json"));
+    for (const [dependency, argument] of [["ppq-private-mode", "PPQ_PROXY_VERSION"], ["tsx", "TSX_VERSION"]]) {
+      const pin = new RegExp(`^ARG ${argument}=(.+)$`, "m").exec(dockerfile)?.[1]?.trim();
+      assert.match(pin, /^\d+\.\d+\.\d+$/);
+      assert.equal(pkg.dependencies[dependency], pin);
+      assert.equal(lock.packages[`node_modules/${dependency}`].version, pin);
+      assert.equal(new RegExp(`^\\s*${argument}:\\s*"([^"]*)"`, "m").exec(buildYaml)?.[1], pin);
+    }
+    assert.deepEqual(lock.packages[""].dependencies, pkg.dependencies);
+    assert.ok(!Object.keys(lock.packages).some((name) => /(?:^|\/)node_modules\/openclaw$/.test(name)));
+    assert.match(dockerfile, /npm ci --omit=dev --legacy-peer-deps/);
+    const service = read(ROOTFS, "etc", "s6-overlay", "s6-rc.d", "ppq-private-proxy", "run");
+    assert.match(service, /exec \/usr\/local\/bin\/node \/opt\/ppq-private-runtime\/node_modules\/tsx\/dist\/cli\.mjs/);
+    assert.doesNotMatch(service, /npm root|exec tsx /);
+  });
+
   it("does not ship superseded V1 permission helpers or standalone smoke probes", () => {
     for (const obsolete of [
       "opt/ha-mcp-server/headless-permissions.mjs",
@@ -182,7 +200,8 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.doesNotMatch(session, /TERMINAL_RUNTIME|V1/);
     assert.match(session, /exec \/usr\/local\/bin\/opencode-v2-session/);
     assert.match(v2Session, /Current TUI: OpenCode V2 \$\{V2_VERSION\}/);
-    assert.doesNotMatch(v2Session, /V1|rollback/);
+    // The failure screen may explain V1 migration; it must not select a V1 runtime.
+    assert.doesNotMatch(v2Session, /TERMINAL_RUNTIME|rollback|exec .*opencode-v1/);
     assert.match(v2Session, /TUI runs as uid 60001; the V2 server runs as root/);
     assert.match(v2Session, /exec \/usr\/local\/bin\/opencode-v2-tui-launch \/run\/opencode-v2/);
   });

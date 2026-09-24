@@ -262,7 +262,7 @@ describe("OpenCode V2 state isolation", () => {
     const loader = secureLauncher.slice(secureLauncher.indexOf("static void load_provider_environment"), secureLauncher.indexOf("static void set_environment"));
     assert.doesNotMatch(loader, /ENOENT/);
     assert.match(loader, /fd < 0 \|\| fstat/);
-    assert.match(v2BoundaryFixture, /: > "\$\{RUNTIME_ROOT\}\/provider-env"/);
+    assert.match(v2BoundaryFixture, /--environment-output "\$\{RUNTIME_ROOT\}\/provider-env"/);
     assert.match(v2BoundaryFixture, /chown root:root "\$\{RUNTIME_ROOT\}\/provider-env"/);
     assert.match(v2BoundaryFixture, /chmod 600 "\$\{RUNTIME_ROOT\}\/provider-env"/);
   });

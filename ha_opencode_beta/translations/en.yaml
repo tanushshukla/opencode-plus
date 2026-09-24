@@ -88,11 +88,27 @@ configuration:
 
   enable_server:
     name: "OpenCode LAN server"
-    description: "Authenticated V2 LAN access is under development. This saved option does not currently open port 4096; use Home Assistant Ingress."
+    description: "Opens an authenticated frontend on 4096 to the existing managed V2 backend. Requires LAN password, public HTTPS URL and trusted reverse-proxy IPs. Map the port only for that proxy."
+
+  lan_password:
+    name: "LAN password"
+    description: "Separate 16–256 character administrator password for LAN API access (username opencode) and native OpenChamber login. Configure privately here, not in chat. Restart the app to apply changes and revoke existing connections/logins."
+
+  lan_trusted_proxies:
+    name: "LAN trusted proxy IPs"
+    description: "Exact IPs of your nearest HTTPS reverse proxy, as seen by the app. No wildcards or CIDRs. The proxy must preserve Host and overwrite X-Forwarded-Proto and X-Forwarded-For; see Documentation."
+
+  server_public_url:
+    name: "OpenCode public HTTPS origin"
+    description: "External HTTPS origin for the API frontend, for example https://code.example.com. No path. Required when the LAN server is enabled."
+
+  openchamber_public_url:
+    name: "OpenChamber public HTTPS origin"
+    description: "External HTTPS origin for the web frontend, for example https://chat.example.com. No path. Required when OpenChamber LAN is enabled."
 
   cors_origins:
     name: "LAN server CORS origins"
-    description: "Reserved for authenticated V2 LAN browser clients. Saved origins are inactive while V2 LAN access is under development."
+    description: "Additional exact HTTPS browser origins allowed to call the authenticated LAN API. No wildcards. Empty allows only the API's own origin; non-browser authenticated clients do not need an entry."
 
   ppq_private_enabled:
     name: "PPQ private TEE models (beta)"
@@ -116,7 +132,7 @@ configuration:
 
   enable_openchamber_lan:
     name: "OpenChamber LAN web UI"
-    description: "Authenticated OpenChamber V2 LAN access is under development. This saved option does not currently open port 4097; use Home Assistant Ingress."
+    description: "Opens the native password-protected OpenChamber UI on 4097 behind your trusted HTTPS proxy. Requires OpenChamber interface mode and LAN settings. The same native login also applies through Ingress while enabled."
 
   env_vars:
     name: "Environment variables"
@@ -124,7 +140,7 @@ configuration:
 
   opencode_config:
     name: "Custom OpenCode configuration"
-    description: "Native V2 JSON subset: model, default_agent, providers, boolean formatter, compaction, media and tool_output. Unsupported or invalid fields stop V2 activation until corrected; saved options are preserved. Managed permissions, plugins, runtime and integration policy cannot be overridden. See Documentation for examples and limits."
+    description: "Native V2 JSON subset: model, default_agent, providers, boolean formatter, compaction, media, tool_output and websearch. Unsupported or invalid fields stop V2 activation until corrected; saved options are preserved. Managed permissions, plugins, runtime and integration policy cannot be overridden. See Documentation for examples and limits."
 
   user_hooks_enabled:
     name: "Startup hooks (beta)"

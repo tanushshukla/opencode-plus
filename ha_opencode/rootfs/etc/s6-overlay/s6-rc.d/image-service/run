@@ -17,7 +17,8 @@ fi
 
 mkdir -p /data/images
 
-INTERFACE_MODE=$(bashio::config 'interface_mode' 2>/dev/null || echo "terminal")
+# Follow init-opencode's resolved mode, like the shared ingress router does.
+INTERFACE_MODE=$(cat /data/.interface_mode 2>/dev/null || echo "terminal")
 if [ "${INTERFACE_MODE}" = "openchamber" ]; then
     export UPSTREAM_PORT=3010
     bashio::log.info "Image service: OpenChamber mode, proxying to 127.0.0.1:3010"

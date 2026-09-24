@@ -632,6 +632,7 @@ if [ "${V2_STATE_READY}" = "true" ] && opencode_v2_select_generation; then
                 --decision-notes "${DECISION_NOTES_ENABLED}" \
                 --lsp-enabled "${LSP_ENABLED}" \
                 --user-hooks "${USER_HOOKS_ENABLED}" > "${V2_CONFIG_TEMP}" \
+            && node /opt/opencode-v2-homeassistant/lan-config.js --write /data/options.json "${V2_RUNTIME_ROOT}/lan.json" \
             && chmod 600 "${V2_CONFIG_TEMP}" "${V2_PROVIDER_ENV_TEMP}" \
             && { od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "${V2_PASSWORD_TEMP}"; } \
             && test "$(wc -c < "${V2_PASSWORD_TEMP}")" -eq 64 \

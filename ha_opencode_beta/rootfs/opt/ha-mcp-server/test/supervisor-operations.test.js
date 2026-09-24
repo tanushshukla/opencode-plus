@@ -122,15 +122,21 @@ describe("Supervisor operation projections", () => {
           size_bytes: 20,
           protected: true,
           compressed: false,
-          locations: ["cloud://private", "/backup/private"],
+          locations: ["/backup/private"],
           content: { homeassistant: false, addons: ["one", "two"], folders: [] },
         },
       ],
-    }, { limit: 1, now: Date.parse("2026-01-05T00:00:00Z") });
+    }, {
+      limit: 1,
+      now: Date.parse("2026-01-05T00:00:00Z"),
+      coreBackups: [{ backup_id: "newer", agents: { "cloud.cloud": {}, "hassio.local": {} } }],
+    });
 
     expect(data).toMatchObject({ total: 2, returned: 1, truncated: true, newest_age_days: 2 });
     expect(data.backups[0]).toMatchObject({ slug: "newer", age_days: 2, app_count: 2, location_count: 2 });
     expect(JSON.stringify(data)).not.toContain("private");
+    expect(JSON.stringify(data)).not.toContain("cloud.cloud");
+    expect(projectBackupPosture({ backups: [{ slug: "newer", locations: ["/backup/private"] }] }).backups[0].location_count).toBeNull();
   });
 
   it("sanitizes credential-bearing repository sources and caps store records", () => {

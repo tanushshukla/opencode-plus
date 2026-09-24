@@ -148,6 +148,7 @@ import {
   projectResolution,
   projectStoreAudit,
   projectSupervisorHealth,
+  hasJobErrors,
   projectSupervisorMetrics,
   redactSensitiveText,
 } from "./lib/supervisor-operations.js";
@@ -187,6 +188,8 @@ const __dirname = dirname(__filename);
 
 const SUPERVISOR_API = process.env.HA_API_BASE_URL || "http://supervisor/core/api";
 const SUPERVISOR_BASE_URL = process.env.SUPERVISOR_BASE_URL || "http://supervisor";
+const SUPERVISOR_WEBSOCKET_URL = new URL("/core/websocket", SUPERVISOR_BASE_URL);
+SUPERVISOR_WEBSOCKET_URL.protocol = SUPERVISOR_WEBSOCKET_URL.protocol === "https:" ? "wss:" : "ws:";
 const HA_CONFIG_DIR = "/homeassistant";
 const SUPERVISOR_TOKEN = process.env.SUPERVISOR_TOKEN;
 const HA_ACCESS_TOKEN = process.env.HA_ACCESS_TOKEN;   // Long-lived token for direct HA Core calls
@@ -1828,7 +1831,7 @@ async function fetchHARepairs() {
  * Run a single HA WebSocket API command (auth, send, close).
  * Used for registry dumps that have no REST equivalent.
  */
-function callHAWebSocketCommand(commandType, timeoutMs = 5000) {
+function callHAWebSocketCommand(commandType, timeoutMs = 5000, url = "ws://supervisor/core/websocket") {
   return new Promise((promiseResolve, promiseReject) => {
     const requestSignal = getRequestSignal();
     let settled = false;
@@ -1850,7 +1853,7 @@ function callHAWebSocketCommand(commandType, timeoutMs = 5000) {
 
     let ws;
     try {
-      ws = new WebSocket("ws://supervisor/core/websocket");
+      ws = new WebSocket(url);
     } catch (error) {
       clearTimeout(timeout);
       promiseReject(error);
@@ -2415,28 +2418,37 @@ const CLI_OUTPUT_MAX_CHARS = 20000;
 // a useful window without letting a single call swamp the context.
 const SERVICE_RESPONSE_MAX_CHARS = 20000;
 
-const server = new Server(
-  {
-    name: "home-assistant",
-    version: "2.8.0",
-    description: "OpenCode Home Assistant MCP server for configuration editing, diagnostics, admin workflows, and HA-native LLM readiness reporting.",
-  },
-  {
-    capabilities: {
-      tools: {
-        listChanged: false,
-      },
-      resources: {
-        subscribe: false,
-        listChanged: false,
-      },
-      prompts: {
-        listChanged: false,
-      },
-      logging: {},
+const requestHandlers = [];
+function registerRequestHandler(schema, handler) {
+  requestHandlers.push([schema, handler]);
+}
+
+function createMcpServer() {
+  const server = new Server(
+    {
+      name: "home-assistant",
+      version: "2.8.0",
+      description: "OpenCode Home Assistant MCP server for configuration editing, diagnostics, admin workflows, and HA-native LLM readiness reporting.",
     },
-  }
-);
+    {
+      capabilities: {
+        tools: {
+          listChanged: false,
+        },
+        resources: {
+          subscribe: false,
+          listChanged: false,
+        },
+        prompts: {
+          listChanged: false,
+        },
+        logging: {},
+      },
+    }
+  );
+  for (const [schema, handler] of requestHandlers) server.setRequestHandler(schema, handler);
+  return server;
+}
 
 // ============================================================================
 // TOOLS DEFINITION - With titles, outputSchema, and annotations
@@ -4307,7 +4319,7 @@ function createCommandOutputContent(toolName, command, output, options = {}) {
 // ============================================================================
 
 // --- Logging: Set Level ---
-server.setRequestHandler(SetLevelRequestSchema, async (request) => {
+registerRequestHandler(SetLevelRequestSchema, async (request) => {
   const { level } = request.params;
   if (LOG_LEVELS.includes(level)) {
     currentLogLevel = level;
@@ -4341,7 +4353,7 @@ function isToolAvailable(name) {
     && getAvailableTools().some((tool) => tool.name === name);
 }
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+registerRequestHandler(ListToolsRequestSchema, async () => {
   sendLog("debug", "mcp-server", { action: "list_tools" });
   // Strip newer MCP spec fields that some clients may not support
   // Keep only: name, description, inputSchema (standard fields)
@@ -5999,7 +6011,16 @@ async function handleToolCall(request) {
       case "get_backup_posture": {
         const limit = clampSupervisorLimit(args?.limit, SUPERVISOR_DEFAULT_LIST_LIMIT, SUPERVISOR_MAX_LIST_LIMIT);
         sendLog("debug", "supervisor-read", { action: "get_backup_posture", limit });
-        const data = projectBackupPosture(await callSupervisor("/backups/info"), { limit });
+        const info = await callSupervisor("/backups/info");
+        let coreBackups;
+        try {
+          coreBackups = (await callHAWebSocketCommand("backup/info", API_TIMEOUT_MS, SUPERVISOR_WEBSOCKET_URL.toString()))?.backups;
+        } catch {
+          // A missing Core agent inventory is unknown, not the smaller count
+          // from Supervisor's cloud-filtered `locations` array.
+          sendLog("warning", "supervisor-read", { action: "backup_agents_unavailable" });
+        }
+        const data = projectBackupPosture(info, { limit, coreBackups });
         return makeCompatibleResponse({
           content: [createCompactJsonContent(
             "Returned bounded Home Assistant backup posture",
@@ -6286,16 +6307,17 @@ async function handleToolCall(request) {
         
         try {
           const job = await callSupervisor(`/jobs/${job_id}`);
+          const hasErrors = hasJobErrors(job);
           
           let statusEmoji;
           if (job.done) {
-            statusEmoji = job.errors ? "âŒ" : "âœ…";
+            statusEmoji = hasErrors ? "âŒ" : "âœ…";
           } else {
             statusEmoji = "â³";
           }
           
           let responseText = `# Job Progress: ${job_id}\n\n`;
-          responseText += `**Status:** ${statusEmoji} ${job.done ? (job.errors ? 'Failed' : 'Completed') : 'In Progress'}\n`;
+          responseText += `**Status:** ${statusEmoji} ${job.done ? (hasErrors ? 'Failed' : 'Completed') : 'In Progress'}\n`;
           responseText += `**Name:** ${job.name}\n`;
           responseText += `**Progress:** ${job.progress || 0}%\n`;
           
@@ -6316,13 +6338,13 @@ async function handleToolCall(request) {
           if (job.child_jobs && job.child_jobs.length > 0) {
             responseText += `## Sub-tasks\n\n`;
             for (const child of job.child_jobs) {
-              const childStatus = child.done ? (child.errors ? "âŒ" : "âœ…") : "â³";
+              const childStatus = child.done ? (hasJobErrors(child) ? "âŒ" : "âœ…") : "â³";
               responseText += `- ${childStatus} ${child.name}: ${child.progress || 0}%\n`;
             }
             responseText += `\n`;
           }
           
-          if (job.errors) {
+          if (hasErrors) {
             responseText += `## Errors\n\n`;
             responseText += `\`\`\`\n${JSON.stringify(job.errors, null, 2)}\n\`\`\`\n`;
           }
@@ -6335,9 +6357,9 @@ async function handleToolCall(request) {
             content: [
               createTextContent(responseText, { audience: ["user", "assistant"], priority: 0.9 }),
               createCompactJsonContent(
-                `Job ${job.done ? (job.errors ? "failed" : "completed") : "in progress"}`,
+                `Job ${job.done ? (hasErrors ? "failed" : "completed") : "in progress"}`,
                 job,
-                { job_id, done: !!job.done, has_errors: !!job.errors },
+                { job_id, done: !!job.done, has_errors: hasErrors },
                 { audience: ["assistant"], priority: 0.6, pretty: false }
               ),
             ],
@@ -6378,7 +6400,7 @@ async function handleToolCall(request) {
               responseText += `| Job ID | Name | Status |\n`;
               responseText += `|--------|------|--------|\n`;
               for (const job of completedJobs.slice(0, 10)) {
-                const status = job.errors ? "âŒ Failed" : "âœ… Success";
+                const status = hasJobErrors(job) ? "âŒ Failed" : "âœ… Success";
                 responseText += `| ${job.uuid.substring(0, 8)}... | ${job.name} | ${status} |\n`;
               }
             }
@@ -7189,23 +7211,23 @@ async function handleToolCall(request) {
   }
 }
 
-server.setRequestHandler(CallToolRequestSchema, (request, extra) =>
+registerRequestHandler(CallToolRequestSchema, (request, extra) =>
   withRequestSignal(extra.signal, () => handleToolCall(request))
 );
 
 // --- List Resources ---
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
+registerRequestHandler(ListResourcesRequestSchema, async () => {
   sendLog("debug", "mcp-server", { action: "list_resources" });
   return { resources: RESOURCES };
 });
 
 // --- List Resource Templates ---
-server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+registerRequestHandler(ListResourceTemplatesRequestSchema, async () => {
   return { resourceTemplates: RESOURCE_TEMPLATES };
 });
 
 // --- Read Resource ---
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+registerRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
   sendLog("debug", "mcp-server", { action: "read_resource", uri });
   
@@ -7446,13 +7468,13 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 });
 
 // --- List Prompts ---
-server.setRequestHandler(ListPromptsRequestSchema, async () => {
+registerRequestHandler(ListPromptsRequestSchema, async () => {
   sendLog("debug", "mcp-server", { action: "list_prompts" });
   return { prompts: PROMPTS };
 });
 
 // --- Get Prompt ---
-server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+registerRequestHandler(GetPromptRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   sendLog("info", "mcp-server", { action: "get_prompt", prompt: name });
   
@@ -7684,7 +7706,7 @@ async function main() {
         }),
       })
       : null;
-    const listener = await startAuthenticatedStreamableHttp(server, {
+    const listener = await startAuthenticatedStreamableHttp(createMcpServer, {
       secretFile: process.env.OPENCODE_MCP_SIDECAR_SECRET_FILE,
       host,
       port: Number(portText),
@@ -7711,6 +7733,7 @@ async function main() {
       }
     }
   } else {
+    const server = createMcpServer();
     const transport = new StdioServerTransport();
     await server.connect(transport);
     close = () => server.close();

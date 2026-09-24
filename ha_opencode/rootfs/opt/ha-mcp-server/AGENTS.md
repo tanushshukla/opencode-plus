@@ -170,7 +170,7 @@ Real-time interaction with the running instance:
 
 - `get_states`, `search_entities`, `get_entity_details`, `get_home_context` — current state and compact area/domain/entity context. Prefer `get_home_context` over broad state dumps.
 - `call_service` — control devices (with confirmation), and read from services that answer with data (`recorder.get_statistics`, `weather.get_forecasts`, `calendar.get_events`, `todo.get_items`); the response comes back automatically
-- `get_history`, `get_logbook`, `get_calendar_events` — historical and calendar data; supplied timestamps must include `Z` or a UTC offset
+- `get_history`, `get_logbook`, `get_calendar_events` — historical and calendar data; supplied timestamps must include `Z` or a UTC offset. For every recorded value, use `get_history` with `response_format: "values"`, then pass its exact `meta.continuation` object until `has_more` is false; `numeric_summary` covers the complete response.
 - `get_devices`, `get_areas` — device and area registry
 - `write_config_safe`, `validate_config`, `check_config_syntax` — safe config writing with validation, content protection and backup
 - `get_integration_docs`, `get_breaking_changes` — current syntax, before writing any integration configuration
@@ -200,6 +200,11 @@ Run `hab --help` or `hab <command> --help` for full usage.
 <!-- HAB_LIVE_HELP_END -->
 
 ### 4. zigporter CLI (Zigbee toolkit)
+
+In the V2 beta, use the `zigporter_run` MCP tool for these commands. Its sidecar
+supplies credentials; the agent shell intentionally does not inherit them.
+Do not run setup or create credential files. If the current profile does not
+expose the tool, report that limitation and use available read-only MCP tools.
 
 Zigbee device management, and the only tool here that **cascades a rename**
 across automations, scripts, scenes and every Lovelace dashboard atomically.

@@ -4,8 +4,8 @@
  *
  * Dependency-free (node core only). Sits on loopback BEHIND the upstream
  * ingress router (ha-openchamber-ingress, port 8099), which keeps facing the
- * Supervisor directly so its remote-address-bound routes (/terminal/quit,
- * /ha-mcp) keep working. This service:
+ * Supervisor directly so its remote-address-bound /ha-mcp route
+ * keeps working. This service:
  *  - serves index.html (header bar + iframe around the terminal)
  *  - accepts image uploads (raw body POST /upload) into /data/images
  *  - proxies /terminal/* (HTTP + WebSocket) to the UI backend with the

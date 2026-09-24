@@ -1,6 +1,6 @@
 // OpenCode Plus overlay: the image/voice wrapper sits BEHIND the upstream
 // ingress router (ha-openchamber-ingress on 8099) so the router keeps seeing
-// the Supervisor socket directly (its /terminal/quit and /ha-mcp routes bind
+// the Supervisor socket directly (its /ha-mcp route binds
 // to the remote address). The wrapper listens on loopback 8101 and proxies to
 // ttyd (8100) or OpenChamber (3010).
 //
@@ -103,7 +103,7 @@ describe("image-service s6 wiring sits behind the shared ingress router", () => 
   });
 
   it("keeps the OpenChamber update-check URL pointed at the router", () => {
-    assert.match(openchamberRun, /^OPENCHAMBER_INGRESS_PORT=8099$/m);
+    assert.match(openchamberRun, /OPENCHAMBER_UPDATE_API_URL="http:\/\/127\.0\.0\.1:8099\//);
   });
 });
 

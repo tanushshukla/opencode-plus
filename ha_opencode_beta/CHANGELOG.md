@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## 3.0.0b22
+
+- Fixed OpenChamber Usage to read the active V2 provider credentials instead of retained V1 sign-ins, including account switches, token refreshes and disconnects.
+- New OpenChamber chats now start with the last-used available model; configured defaults remain the fallback when that model is unavailable.
+- Clarified OpenAI Usage authorization errors so an expired quota token does not imply that saved conversations have expired.
+
+- Recorded initial real-HAOS amd64 qualification for b21, including OpenAI OAuth and 37 policy checks, with remaining promotion gates tracked explicitly.
+- Added published-image restart/resume and safe configuration write/reload qualification; custom-skill discovery remains an identified promotion gap.
+
+## 3.0.0b21
+
+- Restored opt-in LAN frontends with separate authentication, trusted HTTPS-proxy/origin checks and restart-scoped OpenChamber login credentials.
+- Added supervised HTTPS credential-rotation and real Supervisor backup/restore qualification for the stable candidate.
+- Focused the 3.0 stable-promotion plan on supported access, upgrade/restore safety, core workflows and exact-candidate qualification.
+- Corrected completed Supervisor jobs with empty error lists being labelled failed, including update progress and child-job status.
+- Isolated concurrent MCP client sessions so a new connection cannot replace another client's active calls.
+- Fixed zigporter's interactive first-run setup in the existing credential-isolated MCP tool and pinned its runtime; Z2M preflight no longer receives the HA token.
+- Added validated native web-search provider selection and target-native startup checks for securely forwarded provider/search keys.
+- Locked the standalone PPQ dependency tree to prevent moving upstream packages from breaking image builds, without installing its unused OpenClaw peer.
+- If upgrading with a saved enabled LAN option, configure the new LAN password, trusted proxy IPs and public HTTPS origin, or disable LAN before restarting. OpenChamber LAN login sessions and paired tokens expire on each app restart.
+- Passed supervised amd64 HTTPS/login-rotation, Ingress lifecycle and beta-app backup/restore checks. Real HAOS testing, representative stable upgrades and account-backed provider/PPQ acceptance remain required before stable promotion.
+
 ## 3.0.0b20
 
 - Fixed CI's isolated editor-test dependencies, channel-specific proxy parity checks and a process-exit race in cancellation verification.

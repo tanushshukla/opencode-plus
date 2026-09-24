@@ -27,10 +27,18 @@ RUN node /tmp/patch-app-updates.cjs /opt/openchamber-preview
 COPY rootfs/opt/openchamber/patch-editor-lsp.cjs /tmp/patch-editor-lsp.cjs
 COPY rootfs/opt/openchamber/editor-lsp /tmp/editor-lsp
 RUN node /tmp/patch-editor-lsp.cjs /opt/openchamber-preview
+COPY rootfs/opt/openchamber/patch-usage-model.cjs /tmp/patch-usage-model.cjs
+RUN node /tmp/patch-usage-model.cjs /opt/openchamber-preview
 # Skip desktop/mobile lifecycle scripts; explicitly build only the SDK/web assets.
 RUN bun install --frozen-lockfile --ignore-scripts \
     && bun run --cwd packages/sdk build \
     && bun run --cwd packages/web build
+RUN --mount=type=bind,source=test/openchamber-model-fixture.cjs,target=/tmp/openchamber-model-fixture.cjs,readonly \
+    --mount=type=bind,source=test/openchamber-model-regressions.inc.ts,target=/tmp/openchamber-model-regressions.inc.ts,readonly \
+    --mount=type=bind,source=test/openchamber-usage.mjs,target=/tmp/openchamber-usage.mjs,readonly \
+    node /tmp/openchamber-model-fixture.cjs /opt/openchamber-preview \
+    && (cd packages/ui && bun test src/stores/useConfigStore.test.ts) \
+    && node --test /tmp/openchamber-usage.mjs
 COPY rootfs/opt/openchamber/patch-ingress.js /tmp/patch-ingress.cjs
 RUN node /tmp/patch-ingress.cjs /opt/openchamber-preview/packages/web
 COPY rootfs/opt/openchamber/patch-managed-backend.cjs /tmp/patch-managed-backend.cjs
@@ -41,7 +49,8 @@ RUN rm -rf node_modules packages/*/node_modules \
 RUN node -e 'require("./packages/web/node_modules/node-pty").spawn("/bin/true", []).onExit(e => process.exit(e.exitCode))' \
     && node --input-type=module -e 'await import("./packages/web/server/index.js"); process.exit(0)'
 RUN --mount=type=bind,source=test/openchamber-request-body.mjs,target=/tmp/openchamber-request-body.mjs,readonly \
-    node --test /tmp/openchamber-request-body.mjs
+    --mount=type=bind,source=test/openchamber-lan-auth.mjs,target=/tmp/openchamber-lan-auth.mjs,readonly \
+    node --test /tmp/openchamber-request-body.mjs /tmp/openchamber-lan-auth.mjs
 
 ## Build hab CLI from source (pinned release)
 # Pinned to the build host's platform — Go cross-compiles via GOARCH below,
@@ -76,6 +85,7 @@ ARG OPENCHAMBER_VERSION=2.0.0-preview.8
 ARG PPQ_PROXY_VERSION=0.1.0
 ARG TSX_VERSION=4.20.6
 ARG YQ_VERSION=v4.53.3
+ARG ZIGPORTER_VERSION=1.4.2
 
 # Environment for better Node.js performance
 ENV NODE_ENV=production \
@@ -172,8 +182,8 @@ COPY --from=hab-builder /hab /usr/local/bin/hab
 # Install zigporter CLI in an isolated Python virtual environment
 # A Zigbee toolkit for cascade-rename, device inspection, and mesh mapping
 RUN python3 -m venv /opt/zigporter-venv \
-    && /opt/zigporter-venv/bin/pip install --no-cache-dir zigporter \
-    && ln -s /opt/zigporter-venv/bin/zigporter /usr/local/bin/zigporter
+    && /opt/zigporter-venv/bin/pip install --no-cache-dir "zigporter==${ZIGPORTER_VERSION}" \
+    && /opt/zigporter-venv/bin/zigporter --version
 
 # Install the PPQ private-mode proxy globally. Prettier is in the V2 lock;
 # OpenChamber is built independently from its pinned preview source above.
@@ -204,10 +214,6 @@ RUN apt-get update \
     && rm -f /tmp/opencode-v2-non-dumpable.c /tmp/opencode-v2-secure-launcher.c \
         /tmp/opencode-v2-credential-broker.c /tmp/opencode-container-init.c \
         /tmp/opencode-v2-tui-launcher.c \
-    && npm install -g --omit=dev --omit=peer --no-audit --no-fund \
-        ppq-private-mode@${PPQ_PROXY_VERSION} \
-        tsx@${TSX_VERSION} \
-    && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get purge -y --auto-remove g++ make
 
@@ -216,6 +222,21 @@ RUN apt-get update \
 COPY rootfs/opt/opencode-v2-homeassistant/package*.json /opt/opencode-v2-homeassistant/
 COPY rootfs/opt/ha-mcp-server/package*.json /opt/ha-mcp-server/
 COPY rootfs/opt/ha-lsp-server/package*.json /opt/ha-lsp-server/
+COPY rootfs/opt/ppq-private-runtime/package*.json /opt/ppq-private-runtime/
+
+# PPQ runs standalone; its OpenClaw peer is intentionally not installed. Lock
+# the complete tree rather than resolving moving transitive dependencies on each
+# image build. Overrides retain the AI SDK tree already qualified in b20.
+RUN cd /opt/ppq-private-runtime \
+    && npm ci --omit=dev --legacy-peer-deps --no-audit --no-fund \
+    && test "$(node -p 'require("./node_modules/ppq-private-mode/package.json").version')" = "${PPQ_PROXY_VERSION}" \
+    && test "$(node -p 'require("./node_modules/tsx/package.json").version')" = "${TSX_VERSION}" \
+    && test ! -e node_modules/openclaw \
+    && ln -sf /opt/ppq-private-runtime/node_modules/tsx/dist/cli.mjs /usr/local/bin/tsx \
+    && ln -sf /opt/ppq-private-runtime/node_modules/ppq-private-mode/bin/server.ts /usr/local/bin/ppq-private-proxy \
+    && tsx --version \
+    && tsx --eval 'Promise.all([import("./node_modules/ppq-private-mode/lib/proxy.ts"), import("tinfoil")]).then(([proxy, crypto]) => { if (typeof proxy.startProxy !== "function" || typeof crypto.SecureClient !== "function") process.exit(1); })' \
+    && npm cache clean --force
 
 # Install the locked V2 runtime plus MCP and LSP dependencies in parallel.
 # The V2 package lock is committed; matching CLI/plugin pins are also asserted
@@ -247,7 +268,7 @@ RUN set -e; \
     && npm cache clean --force \
     && find /opt/ha-mcp-server/node_modules /opt/ha-lsp-server/node_modules \
         -type f \( -name '*.d.ts' -o -name '*.map' \) -delete \
-    && rm -rf /usr/local/lib/node_modules/ppq-private-mode/node_modules/openclaw \
+    && find /opt/ppq-private-runtime/node_modules -type f \( -name '*.d.ts' -o -name '*.map' -o -name '*.pdb' \) -delete \
     && find /usr/local/lib/node_modules -type f \( -name '*.d.ts' -o -name '*.map' -o -name '*.pdb' \) -delete \
     && test ! -e /usr/local/lib/node_modules/opencode-ai
 
@@ -313,9 +334,13 @@ FROM runtime AS boundary-test
 RUN --mount=type=bind,source=test/v2-boundary-fixture.sh,target=/tmp/v2-boundary-fixture.sh,readonly \
     --mount=type=bind,source=test/v2-caller-secret-plugin.js,target=/tmp/v2-caller-secret-plugin.js,readonly \
     --mount=type=bind,source=test/v2-caller-secret-native.py,target=/tmp/v2-caller-secret-native.py,readonly \
+    --mount=type=bind,source=test/v2-provider-startup-fixture.mjs,target=/tmp/v2-provider-startup-fixture.mjs,readonly \
+    --mount=type=bind,source=test/v2-zigbee-fixture.mjs,target=/tmp/v2-zigbee-fixture.mjs,readonly \
+    --mount=type=bind,source=test/v2-lan-fixture.mjs,target=/tmp/v2-lan-fixture.mjs,readonly \
     OPENCODE_V2_VERSION="${OPENCODE_V2_VERSION}" \
     timeout --signal=TERM --kill-after=10s 240s \
-    bash /tmp/v2-boundary-fixture.sh
+    bash /tmp/v2-boundary-fixture.sh \
+    && timeout --signal=TERM --kill-after=10s 60s node /tmp/v2-zigbee-fixture.mjs
 
 FROM runtime AS final
 

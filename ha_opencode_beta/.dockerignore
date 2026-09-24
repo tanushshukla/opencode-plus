@@ -17,8 +17,15 @@ rootfs/opt/*/README.md
 !test/v2-boundary-fixture.sh
 !test/v2-caller-secret-plugin.js
 !test/v2-caller-secret-native.py
+!test/v2-provider-startup-fixture.mjs
+!test/v2-zigbee-fixture.mjs
+!test/v2-lan-fixture.mjs
 !test/v2-forward-fixture.py
 !test/openchamber-request-body.mjs
+!test/openchamber-lan-auth.mjs
+!test/openchamber-usage.mjs
+!test/openchamber-model-fixture.cjs
+!test/openchamber-model-regressions.inc.ts
 **/vitest.config.*
 
 # Dependencies are installed from package-lock at build time; the checked-in

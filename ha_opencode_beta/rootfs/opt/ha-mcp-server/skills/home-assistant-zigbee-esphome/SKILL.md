@@ -34,6 +34,14 @@ power supply, and a Core update takes the instance offline. Check
 
 ## Inspecting a device
 
+In the V2 beta, call the existing **`zigporter_run` MCP tool** with
+`command: 'inspect "Device Name" --json'` (or an entity ID), rather than executing
+the CLI through the agent shell. The sidecar supplies HA credentials without
+exposing them to shell tools. Do not run setup or create a `.env` credential file.
+Use `get_devices` when the current MCP profile does not expose `zigporter_run`;
+do not bypass the profile restriction. The tool also exposes write commands, so
+keep read-only investigations to check/inspect/list operations.
+
 `zigporter inspect "Device Name" --json` (or `zigporter inspect sensor.entity_id
 --json`) is the one command that cross-references ZHA, Zigbee2MQTT and the Home
 Assistant registry at once — use it before concluding anything about a Zigbee
@@ -45,7 +53,11 @@ mesh in the terminal, and `zigporter network-map --output mesh.svg` writes an
 SVG. Weak `lqi`, a device routing through a distant parent, or a router that has
 gone offline explain a large share of "the sensor keeps dropping out" reports.
 
-`zigporter check` verifies connectivity before you trust any of the above.
+`zigporter_run` with `command: "check"` runs migration preflight. It requires
+Z2M as well as HA/ZHA; a missing Z2M URL on a ZHA-only installation means migration
+prerequisites are incomplete, not that HA or ZHA has failed. Z2M reachability does
+not prove Z2M authentication. The packaged bootstrap uses service environment
+credentials and never opens interactive setup or loads a project `.env`.
 
 ## Renaming — the thing zigporter is for
 

@@ -1,7 +1,6 @@
 #!/command/with-contenv bashio
-# This service must not spawn a second OpenCode server. Authenticated V2 LAN
-# attachment is a separate integration task against the server on port 4100.
-if bashio::config.true 'enable_server'; then
-    bashio::log.warning "V2 LAN authentication setup is pending; the private conversation server remains on loopback."
-fi
-exec sleep infinity
+set -eu
+if ! bashio::config.true 'enable_server'; then exec sleep infinity; fi
+exec env -i PATH="/usr/local/bin:/usr/bin:/bin" \
+    LD_PRELOAD="/usr/local/lib/opencode-v2-non-dumpable.so" \
+    node /opt/opencode-v2-homeassistant/lan-server.js api

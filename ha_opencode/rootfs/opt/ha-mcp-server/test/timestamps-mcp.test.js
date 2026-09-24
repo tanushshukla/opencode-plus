@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -10,11 +10,19 @@ const children = new Set();
 const requests = [];
 let coreServer;
 let coreBaseUrl;
+let historyResponse = [[]];
+let attributeOnlyWindow = false;
 
 function coreResponse(request, response) {
   requests.push(request.url);
   response.writeHead(200, { "content-type": "application/json" });
-  if (request.url.startsWith("/history/period/")) return response.end(JSON.stringify([[]]));
+  if (request.url.startsWith("/history/period/")) {
+    const query = new URL(request.url, "http://core.test").searchParams;
+    // Core 2026.9: excluding attributes may eliminate rows whose last_changed
+    // precedes this window even though last_updated is inside it.
+    const omitted = attributeOnlyWindow && query.has("no_attributes") && query.has("skip_initial_state");
+    return response.end(JSON.stringify(omitted ? [[]] : historyResponse));
+  }
   if (request.url.startsWith("/logbook/")) return response.end(JSON.stringify([]));
   if (request.url.startsWith("/calendars/")) return response.end(JSON.stringify([]));
   response.writeHead(404, { "content-type": "application/json" });
@@ -30,6 +38,11 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const child of children) child.kill();
   await new Promise((resolve) => coreServer.close(resolve));
+});
+
+afterEach(() => {
+  historyResponse = [[]];
+  attributeOnlyWindow = false;
 });
 
 function callMcp(toolName, args = {}) {
@@ -108,6 +121,8 @@ describe("timezone-aware MCP history tools", () => {
     let request = mostRecentRequest();
     expect(decodeURIComponent(request.pathname)).toBe("/history/period/2026-08-07T04:00:00+02:00");
     expect(request.searchParams.get("end_time")).toBe("2026-08-07T05:00:00-07:00");
+    expect(request.searchParams.has("significant_changes_only")).toBe(false);
+    expect(request.searchParams.has("skip_initial_state")).toBe(false);
     expect(history.meta).toMatchObject({
       input_time_requirement: "RFC 3339 timestamp with Z or UTC offset",
       response_time_reference: "UTC",
@@ -150,6 +165,10 @@ describe("timezone-aware MCP history tools", () => {
   }, TIMEOUT_MS + 10_000);
 
   it("keeps generated defaults in UTC", async () => {
+    const history = parsePayload(await callMcp("get_history", { entity_id: "sensor.temperature" }));
+    expect(history.meta.end_time).toBeNull();
+    expect(history.meta.effective_end_time).toMatch(/Z$/);
+
     await callMcp("get_logbook");
     expect(decodeURIComponent(mostRecentRequest().pathname).split("/").at(-1)).toMatch(/Z$/);
 
@@ -157,5 +176,117 @@ describe("timezone-aware MCP history tools", () => {
     const request = mostRecentRequest();
     expect(request.searchParams.get("start")).toMatch(/Z$/);
     expect(request.searchParams.get("end")).toMatch(/Z$/);
+  }, TIMEOUT_MS + 5_000);
+
+  it("returns fixed-bounds pages, compact values, and a complete-window numeric summary", async () => {
+    historyResponse = [[
+      { state: "8", last_changed: "2026-08-07T04:00:01Z" },
+      { state: "3", last_changed: "2026-08-07T04:00:02Z" },
+      { state: "11", last_changed: "2026-08-07T04:00:03Z" },
+      { state: "unknown", last_changed: "2026-08-07T04:00:04Z" },
+    ]];
+
+    const history = parsePayload(await callMcp("get_history", {
+      entity_id: "sensor.power",
+      start_time: "2026-08-07T04:00:00Z",
+      end_time: "2026-08-07T05:00:00Z",
+      limit: 2,
+      offset: 1,
+      page_from: "oldest",
+      response_format: "values",
+    }));
+    let request = mostRecentRequest();
+    expect(request.searchParams.get("significant_changes_only")).toBe("0");
+    expect(request.searchParams.has("skip_initial_state")).toBe(true);
+    expect(request.searchParams.has("minimal_response")).toBe(false);
+    expect(request.searchParams.has("no_attributes")).toBe(false);
+
+    expect(history.data).toEqual([
+      { state: "3", timestamp: "2026-08-07T04:00:02Z" },
+      { state: "11", timestamp: "2026-08-07T04:00:03Z" },
+    ]);
+    expect(history.meta).toMatchObject({
+      total_events: 4,
+      returned_events: 2,
+      truncated: true,
+      response_format: "values",
+      include_all_changes: true,
+      requested_limit: 2,
+      effective_limit: 2,
+      limit_clamped_for_format: false,
+      has_more: true,
+      next_offset: 3,
+      continuation: {
+        entity_id: "sensor.power",
+        start_time: "2026-08-07T04:00:00Z",
+        end_time: "2026-08-07T05:00:00Z",
+        minimal: true,
+        include_all_changes: true,
+        limit: 2,
+        offset: 3,
+        page_from: "oldest",
+        response_format: "values",
+      },
+      page: {
+        page_from: "oldest",
+        offset: 1,
+        limit: 2,
+        next_offset: 3,
+        has_more: true,
+      },
+      numeric_summary: {
+        scope: "complete_requested_window",
+        numeric_events: 3,
+        non_numeric_events: 1,
+        sum: 22,
+        sample_mean: 22 / 3,
+        calculation_status: "finite_double",
+        minimum: { value: 3, timestamp: "2026-08-07T04:00:02Z" },
+        maximum: { value: 11, timestamp: "2026-08-07T04:00:03Z" },
+      },
+    });
+    expect(history.meta.page).not.toHaveProperty("items");
+
+    const eventHistory = parsePayload(await callMcp("get_history", {
+      entity_id: "sensor.power",
+      start_time: "2026-08-07T04:00:00Z",
+      end_time: "2026-08-07T05:00:00Z",
+      limit: 1000,
+    }));
+    expect(eventHistory.data[0]).toHaveLength(4);
+    expect(eventHistory.meta).toMatchObject({
+      requested_limit: 1000,
+      effective_limit: 200,
+      limit_clamped_for_format: true,
+    });
+    expect(eventHistory.meta.page).not.toHaveProperty("items");
+  }, TIMEOUT_MS + 5_000);
+
+  it("preserves attribute-only repeated values and updated timestamps in complete compact history", async () => {
+    attributeOnlyWindow = true;
+    historyResponse = [[1, 2, 3].map((minute) => ({
+      entity_id: "climate.history_fixture",
+      state: "heat",
+      last_changed: "2026-08-07T03:00:00Z",
+      last_updated: `2026-08-07T04:0${minute}:00Z`,
+      attributes: { current_temperature: 20 + minute },
+    }))];
+    const args = {
+      entity_id: "climate.history_fixture",
+      start_time: "2026-08-07T04:00:00Z", end_time: "2026-08-07T05:00:00Z",
+      include_all_changes: true, page_from: "oldest", limit: 2,
+    };
+    const full = parsePayload(await callMcp("get_history", { ...args, minimal: false, limit: 200 }));
+    const first = parsePayload(await callMcp("get_history", { ...args, response_format: "values" }));
+    const second = parsePayload(await callMcp("get_history", first.meta.continuation));
+    expect([...first.data, ...second.data]).toEqual(full.data[0].map((event) => ({
+      state: event.state, timestamp: event.last_updated,
+    })));
+    expect(first.meta.total_events).toBe(3);
+    expect(first.meta.numeric_summary.non_numeric_events).toBe(3);
+    expect(second.meta.has_more).toBe(false);
+    const compactEvents = parsePayload(await callMcp("get_history", { ...args, minimal: true }));
+    expect(compactEvents.data[0]).toHaveLength(2);
+    expect(compactEvents.data[0].every((event) => !("attributes" in event))).toBe(true);
   }, TIMEOUT_MS + 5_000);
 });

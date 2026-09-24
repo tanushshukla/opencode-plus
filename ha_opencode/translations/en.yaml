@@ -11,8 +11,8 @@
 #   - No restart instructions (every option needs one) and no changelog voice.
 configuration:
   interface_mode:
-    name: "Interface mode"
-    description: "Which interface OpenCode shows in the Home Assistant sidebar. 'terminal' is the classic ttyd terminal; 'openchamber' serves the OpenChamber web UI through Home Assistant Ingress."
+    name: "Interface"
+    description: "Choose the terminal or pinned OpenChamber V2 web preview. Both use the same managed V2 backend and session history."
 
   terminal_theme:
     name: "Terminal theme"
@@ -84,19 +84,35 @@ configuration:
 
   cpu_mode:
     name: "CPU mode"
-    description: "Which OpenCode binary to run. 'auto' detects your CPU (recommended), 'baseline' selects the build meant for older CPUs without AVX2, and 'regular' forces the standard build. OpenCode requires a CPU with SSE4.2 in every mode. Note that upstream currently ships the same binary in both packages, so 'baseline' does not presently help a CPU without AVX2."
+    description: "Which OpenCode binary to run. 'auto' detects your CPU (recommended), 'baseline' selects the build meant for older CPUs without AVX2, and 'regular' forces the standard build. OpenCode requires a CPU with SSE4.2 (Intel Nehalem 2008+, AMD Bulldozer 2011+) in every mode. Note that upstream currently ships the same binary in both packages, so 'baseline' does not presently help a CPU without AVX2."
 
   enable_server:
     name: "OpenCode LAN server"
-    description: "Starts an OpenCode server on internal port 4096 so other computers can attach to this session with the OpenCode CLI. To reach it, also map 4096/tcp in the Network section below. Use this on trusted networks only, and never expose it to the internet."
+    description: "Opens an authenticated frontend on 4096 to the existing managed V2 backend. Requires LAN password, public HTTPS URL and trusted reverse-proxy IPs. Map the port only for that proxy."
+
+  lan_password:
+    name: "LAN password"
+    description: "Separate 16–256 character administrator password for LAN API access (username opencode) and native OpenChamber login. Configure privately here, not in chat. Restart the app to apply changes and revoke existing connections/logins."
+
+  lan_trusted_proxies:
+    name: "LAN trusted proxy IPs"
+    description: "Exact IPs of your nearest HTTPS reverse proxy, as seen by the app. No wildcards or CIDRs. The proxy must preserve Host and overwrite X-Forwarded-Proto and X-Forwarded-For; see Documentation."
+
+  server_public_url:
+    name: "OpenCode public HTTPS origin"
+    description: "External HTTPS origin for the API frontend, for example https://code.example.com. No path. Required when the LAN server is enabled."
+
+  openchamber_public_url:
+    name: "OpenChamber public HTTPS origin"
+    description: "External HTTPS origin for the web frontend, for example https://chat.example.com. No path. Required when OpenChamber LAN is enabled."
 
   cors_origins:
     name: "LAN server CORS origins"
-    description: "Applies only when the LAN server above is on, and only to browser-based clients such as a web or VS Code UI — 'opencode attach' does not need it. Each entry is an exact origin: scheme, host, and port, with no path, for example 'http://192.168.1.20:8080'. Without a matching entry a browser client may list providers and models but never receive replies."
+    description: "Additional exact HTTPS browser origins allowed to call the authenticated LAN API. No wildcards. Empty allows only the API's own origin; non-browser authenticated clients do not need an entry."
 
   ppq_private_enabled:
     name: "PPQ private TEE models (beta)"
-    description: "Requires the PPQ API key below. Starts an internal PPQ private-mode encryption proxy and adds it to OpenCode as a provider for TEE-backed models; the proxy binds to 127.0.0.1 inside the container and is not reachable from your network."
+    description: "Starts the internal proxy and registers native ppq-private models when a key is configured. Select a private model explicitly; this does not switch existing sessions or verify upstream private inference."
 
   ppq_api_key:
     name: "PPQ API key"
@@ -116,16 +132,16 @@ configuration:
 
   enable_openchamber_lan:
     name: "OpenChamber LAN web UI"
-    description: "Publish the OpenChamber web UI on internal port 4097 so a reverse proxy or tunnel can point straight at the root path. Only works when Interface mode is 'openchamber'. To reach it, also map 4097/tcp in the Network settings. There is no Home Assistant login in front of this port, so only use it on trusted networks and put it behind a reverse proxy or Cloudflare Access before any remote exposure."
+    description: "Opens the native password-protected OpenChamber UI on 4097 behind your trusted HTTPS proxy. Requires OpenChamber interface mode and LAN settings. The same native login also applies through Ingress while enabled."
 
   env_vars:
     name: "Environment variables"
-    description: "Extra environment variables for OpenCode and the terminal shell, each with a name and a value. Useful for providers that are configured through the environment, such as AZURE_RESOURCE_NAME or OPENAI_API_KEY — most providers are set up inside the app with '/connect' instead. Critical system variables such as HOME, PATH and SUPERVISOR_TOKEN cannot be overridden."
+    description: "The V2 backend accepts non-reserved provider *_API_KEY variables such as OPENAI_API_KEY. Other variables have separate shell/service handling and produce a backend warning. Critical system and HA credential variables cannot be overridden. Provider keys are not isolated from backend subprocesses; configure them privately, not in chat."
 
   opencode_config:
     name: "Custom OpenCode configuration"
-    description: "A JSON object merged into OpenCode's own configuration, for providers, keybindings, permission rules and similar. Leave empty for the defaults; the full schema is at https://opencode.ai/docs/config."
+    description: "Native V2 JSON subset: model, default_agent, providers, boolean formatter, compaction, media, tool_output and websearch. Unsupported or invalid fields stop V2 activation until corrected; saved options are preserved. Managed permissions, plugins, runtime and integration policy cannot be overridden. See Documentation for examples and limits."
 
   user_hooks_enabled:
-    name: "Startup hooks"
-    description: "Runs your own .sh scripts from the 'startup.d' folder in this add-on's directory, once every time the add-on starts. These scripts run as root with access to the Home Assistant API, and the add-on does not check, supervise, or restart them; leave this off unless you want that responsibility."
+    name: "Startup hooks (beta)"
+    description: "Runs your own .sh scripts from the 'startup.d' folder in this add-on's directory, once every time the add-on starts — the supported way to add a bridge, a small service or an extra tool without editing files inside the container. These scripts are yours: they run as root with access to the Home Assistant API, and the add-on does not check, supervise or restart them. Anything that can write to your configuration folder can therefore run code here, so leave this off unless you want it. Turn it on, restart, then run 'ha-hooks list' in the terminal; the folder is created with a README and a worked example."

@@ -1,10 +1,9 @@
-// The add-on ships exactly one OpenCode build and runs only that one. That is a
-// property of several files at once — the Dockerfile pin, the CI-read pin in
-// build.yaml, and every script that builds a PATH — so it is asserted here
-// rather than trusted to review.
+// The add-on ships one exact V2 build and attaches public clients to its managed
+// server. That is a property of several files at
+// once — Dockerfile pins, CI-read pins, and every script that builds a PATH — so
+// it is asserted here rather than trusted to review.
 //
-// Scoped to the add-on folder this test file ships in, so the copy promoted to
-// stable checks stable and the beta copy checks beta.
+// Scoped to this add-on's pinned V2 runtime contract.
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -16,6 +15,21 @@ const CHANNEL = path.basename(ADDON_DIR);
 const ROOTFS = path.join(ADDON_DIR, "rootfs");
 
 const read = (...parts) => fs.readFileSync(path.join(...parts), "utf8");
+
+it("checks authentication on the V2 API health route, not the web UI fallback", () => {
+  const fixture = read(ADDON_DIR, "test", "v2-boundary-fixture.sh");
+  const selfTest = read(ROOTFS, "usr", "local", "bin", "opencode-v2-self-test");
+  assert.match(fixture, /wait_for_status 401 "http:\/\/127\.0\.0\.1:\$\{SERVER_PORT\}\/api\/info"/);
+  assert.match(selfTest, /client\.request\("\/api\/info", expected=401, authenticated=False/);
+  assert.doesNotMatch(fixture + selfTest, /\/global\/health/);
+});
+
+it("requires the certified V2 nested plugin state without a legacy status fallback", () => {
+  const selfTest = read(ROOTFS, "usr", "local", "bin", "opencode-v2-self-test");
+  assert.match(selfTest, /isinstance\(plugin\.get\("state"\), dict\)/);
+  assert.match(selfTest, /plugin\["state"\]\.get\("status"\) == "active"/);
+  assert.doesNotMatch(selfTest, /plugin\.get\("status"\)/);
+});
 
 /** Every shipped shell script and s6 run file, as [relative path, contents]. */
 function shellSources() {
@@ -42,28 +56,27 @@ function shellSources() {
 
 describe(`${CHANNEL} runtime pin`, () => {
   const dockerfile = read(ADDON_DIR, "Dockerfile");
+  const configYaml = read(ADDON_DIR, "config.yaml");
+  const appArmor = read(ADDON_DIR, "apparmor.txt");
   const buildYaml = read(ADDON_DIR, "build.yaml");
+  const v2BoundaryFixture = read(ADDON_DIR, "test", "v2-boundary-fixture.sh");
+  const v2SelfTest = read(ROOTFS, "usr", "local", "bin", "opencode-v2-self-test");
+  const smokeTest = read(ROOTFS, "usr", "local", "bin", "opencode-smoke-test");
+  const v2Session = read(ROOTFS, "usr", "local", "bin", "opencode-v2-session");
+  const initService = read(ROOTFS, "etc", "s6-overlay", "s6-rc.d", "init-opencode", "run");
+  const containerInit = read(ROOTFS, "opt", "opencode-v2-homeassistant", "container-init.c");
+  const tuiLauncher = read(ROOTFS, "opt", "opencode-v2-homeassistant", "tui-launcher.c");
+  const devcontainerAcceptance = read(ADDON_DIR, "..", "scripts", "devcontainer-acceptance.sh");
 
-  const dockerfilePin = /^ARG OPENCODE_VERSION=(.+)$/m.exec(dockerfile)?.[1]?.trim();
-  const buildYamlPin = /^\s*OPENCODE_VERSION:\s*"([^"]*)"/m.exec(buildYaml)?.[1];
   const dockerfileNodePin = /^ARG NODE_VERSION=(.+)$/m.exec(dockerfile)?.[1]?.trim();
   const buildYamlNodePin = /^\s*NODE_VERSION:\s*"([^"]*)"/m.exec(buildYaml)?.[1];
+  const dockerfileV2Pin = /^ARG OPENCODE_V2_VERSION=(.+)$/m.exec(dockerfile)?.[1]?.trim();
+  const buildYamlV2Pin = /^\s*OPENCODE_V2_VERSION:\s*"([^"]*)"/m.exec(buildYaml)?.[1];
+  const v2Package = JSON.parse(
+    read(ROOTFS, "opt", "opencode-v2-homeassistant", "package.json"),
+  );
   const dockerfileOpenchamberPin = /^ARG OPENCHAMBER_VERSION=(.+)$/m.exec(dockerfile)?.[1]?.trim();
   const buildYamlOpenchamberPin = /^\s*OPENCHAMBER_VERSION:\s*"([^"]*)"/m.exec(buildYaml)?.[1];
-
-  it("pins an exact OpenCode version in the Dockerfile", () => {
-    assert.ok(dockerfilePin, "Dockerfile has no ARG OPENCODE_VERSION");
-    assert.match(
-      dockerfilePin,
-      /^\d+\.\d+\.\d+$/,
-      `OPENCODE_VERSION must be an exact version, got '${dockerfilePin}'`,
-    );
-  });
-
-  it("pins the same version in build.yaml, which is what CI reads", () => {
-    assert.ok(buildYamlPin, "build.yaml has no OPENCODE_VERSION");
-    assert.equal(buildYamlPin, dockerfilePin);
-  });
 
   it("copies one exact supported Node runtime into the Home Assistant base", () => {
     assert.match(dockerfileNodePin, /^24\.\d+\.\d+$/);
@@ -73,35 +86,251 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.doesNotMatch(dockerfile, /^[ \t]+nodejs \\/m);
   });
 
-  it("fails closed on architecture selection and executes the target runtime", () => {
+  it("fails closed on architecture selection and executes the pinned target runtime", () => {
     assert.match(dockerfile, /Unsupported BUILD_ARCH: \$\{BUILD_ARCH:-unset\}/);
-    assert.match(dockerfile, /test "\$\(opencode --version\)" = "\$\{OPENCODE_VERSION\}"/);
+    assert.match(dockerfile, /\/usr\/local\/libexec\/opencode-v2 --version/);
   });
 
   it("pins the same exact OpenChamber version in the Dockerfile and build.yaml", () => {
     assert.ok(dockerfileOpenchamberPin, "Dockerfile has no ARG OPENCHAMBER_VERSION");
     assert.ok(buildYamlOpenchamberPin, "build.yaml has no OPENCHAMBER_VERSION");
-    assert.match(dockerfileOpenchamberPin, /^\d+\.\d+\.\d+$/);
+    assert.match(dockerfileOpenchamberPin, /^2\.\d+\.\d+-preview\.\d+$/);
     assert.equal(buildYamlOpenchamberPin, dockerfileOpenchamberPin);
+    const revision = /^ARG OPENCHAMBER_REVISION=([a-f0-9]{40})$/m.exec(dockerfile)?.[1];
+    assert.ok(revision);
+    assert.equal(/^\s*OPENCHAMBER_REVISION:\s*"([^"]*)"/m.exec(buildYaml)?.[1], revision);
+    assert.match(dockerfile, /bun install --frozen-lockfile --production --ignore-scripts/);
+    assert.doesNotMatch(dockerfile, /@openchamber\/web@/);
   });
 
-  it("stays on the certified V1 line", () => {
-    // V2 adoption is governed by the local root PLAN.md and its release gates,
-    // not by editing a pin.
-    assert.match(dockerfilePin, /^1\./);
+  it("ships no V1 CLI or runtime selector", () => {
+    assert.doesNotMatch(dockerfile, /opencode-ai@|ARG OPENCODE_VERSION=/);
+    assert.doesNotMatch(buildYaml, /OPENCODE_VERSION:/);
+    assert.doesNotMatch(configYaml, /terminal_runtime:/);
+    assert.match(dockerfile, /test ! -e \/usr\/local\/lib\/node_modules\/opencode-ai/);
+  });
+
+  it("locks the standalone PPQ tree to channel pins without the unused OpenClaw peer", () => {
+    const pkg = JSON.parse(read(ROOTFS, "opt", "ppq-private-runtime", "package.json"));
+    const lock = JSON.parse(read(ROOTFS, "opt", "ppq-private-runtime", "package-lock.json"));
+    for (const [dependency, argument] of [["ppq-private-mode", "PPQ_PROXY_VERSION"], ["tsx", "TSX_VERSION"]]) {
+      const pin = new RegExp(`^ARG ${argument}=(.+)$`, "m").exec(dockerfile)?.[1]?.trim();
+      assert.match(pin, /^\d+\.\d+\.\d+$/);
+      assert.equal(pkg.dependencies[dependency], pin);
+      assert.equal(lock.packages[`node_modules/${dependency}`].version, pin);
+      assert.equal(new RegExp(`^\\s*${argument}:\\s*"([^"]*)"`, "m").exec(buildYaml)?.[1], pin);
+    }
+    assert.deepEqual(lock.packages[""].dependencies, pkg.dependencies);
+    assert.ok(!Object.keys(lock.packages).some((name) => /(?:^|\/)node_modules\/openclaw$/.test(name)));
+    assert.match(dockerfile, /npm ci --omit=dev --legacy-peer-deps/);
+    const service = read(ROOTFS, "etc", "s6-overlay", "s6-rc.d", "ppq-private-proxy", "run");
+    assert.match(service, /exec \/usr\/local\/bin\/node \/opt\/ppq-private-runtime\/node_modules\/tsx\/dist\/cli\.mjs/);
+    assert.doesNotMatch(service, /npm root|exec tsx /);
+  });
+
+  it("does not ship superseded V1 permission helpers or standalone smoke probes", () => {
+    for (const obsolete of [
+      "opt/ha-mcp-server/headless-permissions.mjs",
+      "opt/ha-mcp-server/lib/headless-permissions.js",
+      "opt/ha-mcp-server/test/headless-permissions.test.js",
+      "usr/local/bin/opencode-smoke-probe.mjs",
+    ]) {
+      assert.equal(fs.existsSync(path.join(ROOTFS, obsolete)), false, obsolete);
+    }
+    assert.ok(fs.existsSync(path.join(ROOTFS, "usr/local/bin/opencode-v2-self-test")));
+    assert.ok(fs.existsSync(path.join(ROOTFS, "usr/local/bin/opencode-lsp-probe.mjs")));
+    assert.doesNotMatch(initService, />\s*\/data\/\.opencode_(?:version|bin)\b/);
+  });
+
+  it("pins one matching exact official V2 CLI and plugin release", () => {
+    assert.match(dockerfileV2Pin, /^2\.\d+\.\d+$/);
+    assert.equal(buildYamlV2Pin, dockerfileV2Pin);
+    assert.equal(v2Package.dependencies["@opencode/cli"], dockerfileV2Pin);
+    assert.equal(v2Package.dependencies["@opencode/plugin"], dockerfileV2Pin);
+  });
+
+  it("installs and verifies the V2 runtime from its committed lock", () => {
+    assert.match(dockerfile, /opencode-v2-homeassistant && npm ci --omit=dev/);
+    assert.match(dockerfile, /@opencode\/cli\/package\.json'\)\.version/);
+    assert.match(dockerfile, /@opencode\/plugin\/package\.json'\)\.version/);
+    assert.match(dockerfile, /\/usr\/local\/libexec\/opencode-v2 --version/);
+    assert.match(dockerfile, /\/usr\/local\/share\/opencode-v2-certified-version/);
+    assert.match(dockerfile, /cli-linux-x64-baseline\/bin\/opencode/);
+    assert.match(dockerfile, /cli-linux-x64\/bin\/opencode/);
+    assert.match(dockerfile, /cli-linux-arm64\/bin\/opencode/);
+    for (const name of ["V2_INSTALL_PID", "MCP_INSTALL_PID", "LSP_INSTALL_PID"]) {
+      assert.match(dockerfile, new RegExp(`wait "\\$\\{${name}\\}"`));
+    }
   });
 
   it("fails the image build when the resolved runtime is not the pin", () => {
-    assert.match(dockerfile, /opencode-ai\/package\.json'\)\.version/);
-    assert.match(dockerfile, /OPENCODE_VERSION is \$\{OPENCODE_VERSION\}/);
+    assert.match(dockerfile, /OPENCODE_V2_VERSION is \$\{OPENCODE_V2_VERSION\}/);
   });
 
   it("records the certified version in the image for runtime code to read", () => {
-    assert.match(dockerfile, /\/usr\/local\/share\/opencode-certified-version/);
+    assert.match(dockerfile, /\/usr\/local\/share\/opencode-v2-certified-version/);
     assert.match(
       read(ROOTFS, "usr", "local", "lib", "opencode", "runtime.sh"),
-      /opencode_certified_version\(\)/,
+      /opencode_v2_certified_version\(\)/,
     );
+  });
+
+  it("always attaches the terminal to V2 and ignores obsolete runtime selection", () => {
+    const session = read(ROOTFS, "usr", "local", "bin", "opencode-session.sh");
+    const serviceRoot = path.join(ROOTFS, "etc", "s6-overlay", "s6-rc.d");
+
+    assert.match(initService, /SELECTED_INTERFACE_MODE=.*interface_mode/);
+    assert.doesNotMatch(initService, /TERMINAL_RUNTIME=/);
+    assert.match(initService, /rm -f \/data\/\.terminal_runtime/);
+    assert.match(initService, /printf '%s\\n' "\$\{INTERFACE_MODE\}" > \/data\/\.interface_mode/);
+    for (const service of [
+      "ha-opencode",
+      "ha-openchamber-ingress",
+    ]) {
+      assert.match(read(serviceRoot, service, "run"), /cat \/data\/\.interface_mode/);
+    }
+    for (const service of [
+      "ha-openchamber",
+      "ha-openchamber-lan",
+      "ha-opencode-server",
+    ]) {
+      assert.doesNotMatch(read(serviceRoot, service, "run"), /cat \/data\/\.terminal_runtime|exec opencode serve/);
+    }
+    assert.doesNotMatch(session, /TERMINAL_RUNTIME|V1/);
+    assert.match(session, /exec \/usr\/local\/bin\/opencode-v2-session/);
+    assert.match(v2Session, /Current TUI: OpenCode V2 \$\{V2_VERSION\}/);
+    // The failure screen may explain V1 migration; it must not select a V1 runtime.
+    assert.doesNotMatch(v2Session, /TERMINAL_RUNTIME|rollback|exec .*opencode-v1/);
+    assert.match(v2Session, /TUI runs as uid 60001; the V2 server runs as root/);
+    assert.match(v2Session, /exec \/usr\/local\/bin\/opencode-v2-tui-launch \/run\/opencode-v2/);
+  });
+
+  it("keeps shared ingress active using init's resolved interface mode", () => {
+    const serviceRoot = path.join(ROOTFS, "etc", "s6-overlay", "s6-rc.d");
+    const ingress = read(serviceRoot, "ha-openchamber-ingress", "run");
+    const terminal = read(serviceRoot, "ha-opencode", "run");
+
+    assert.deepEqual(fs.readdirSync(path.join(serviceRoot, "ha-openchamber-ingress", "dependencies.d")), ["init-opencode"]);
+    assert.match(ingress, /HA_INGRESS_UI=\$\(cat \/data\/\.interface_mode 2>\/dev\/null \|\| echo "terminal"\)/);
+    assert.doesNotMatch(ingress, /\.terminal_runtime|TERMINAL_RUNTIME|bashio::config 'interface_mode'|sleep infinity/);
+    assert.match(initService, /INTERFACE_MODE="\$\{SELECTED_INTERFACE_MODE\}"/);
+    assert.match(ingress, /if \[ "\$\{HA_INGRESS_UI\}" != "openchamber" \]; then\s+export HA_INGRESS_UI="terminal"\s+export OPENCHAMBER_UPSTREAM_PORT=(?:8100|8101)\s+fi/);
+    assert.match(ingress, /^export OPENCHAMBER_INGRESS_PORT=8099$/m);
+    assert.match(ingress, /^export OPENCHAMBER_UPSTREAM_HOST="127\.0\.0\.1"$/m);
+    assert.match(terminal, /INTERFACE_MODE=\$\(cat \/data\/\.interface_mode/);
+    assert.match(terminal, /-i lo \\\n\s+-p 8100 \\/);
+  });
+
+  it("uses the direct Home Assistant workspace without elevated mount privileges", () => {
+    assert.match(configYaml, /privileged: \[\]/);
+    assert.match(configYaml, /apparmor: true/);
+    assert.doesNotMatch(appArmor, /capability sys_admin,/);
+    assert.doesNotMatch(appArmor, /^\s*capability,\s*$/m);
+    assert.doesNotMatch(appArmor, /^\s*ptrace,\s*$/m);
+    assert.match(dockerfile, /ENTRYPOINT \["\/usr\/local\/bin\/opencode-container-init"\]/);
+    assert.doesNotMatch(containerInit, /X-mount\.idmap|\/usr\/bin\/mount|CAP_SYS_ADMIN/);
+    assert.match(containerInit, /#define SOURCE_PATH "\/homeassistant"/);
+    assert.doesNotMatch(containerInit, /rollback|terminal_runtime|disable_v2_services/);
+    assert.match(containerInit, /publish_ready\(\);/);
+    assert.match(containerInit, /execve\(arguments\[0\], arguments, environ\)/);
+  });
+
+  it("attaches the V2 TUI through a credential-confined native launcher", () => {
+    assert.match(dockerfile, /useradd --uid 60001 --gid opencode-v2-tui/);
+    assert.match(tuiLauncher, /#define RUNTIME_UID 60001/);
+    assert.match(tuiLauncher, /clearenv\(\)/);
+    assert.match(tuiLauncher, /OPENCODE_PASSWORD/);
+    assert.match(tuiLauncher, /PR_SET_DUMPABLE, 0/);
+    assert.match(tuiLauncher, /PR_CAPBSET_DROP/);
+    assert.match(tuiLauncher, /fstatat\(workspace, "\.opencode"/);
+    assert.match(tuiLauncher, /OPENCODE_DISABLE_PROJECT_CONFIG/);
+    assert.match(tuiLauncher, /OPENCODE_CONFIG/);
+    assert.match(tuiLauncher, /LD_PRELOAD/);
+    assert.match(tuiLauncher, /opencode-v2-non-dumpable\.so/);
+    assert.match(tuiLauncher, /#define NATIVE_CLI "\/usr\/local\/libexec\/opencode-v2"/);
+    assert.match(tuiLauncher, /child_argv\[count\+\+\] = "--server"/);
+    assert.match(tuiLauncher, /child_argv\[count\+\+\] = SERVER_URL/);
+    assert.doesNotMatch(tuiLauncher, /SUPERVISOR_TOKEN|HA_TOKEN|HA_ACCESS_TOKEN/);
+    assert.match(
+      read(ROOTFS, "opt", "opencode-v2-homeassistant", "secure-launcher.c"),
+      /project \.opencode content is not allowed in the V2 server/,
+    );
+  });
+
+  it("exercises the staged V2 Linux privilege boundary during the image build", () => {
+    assert.match(dockerfile, /opencode-v2-launch/);
+    assert.match(dockerfile, /secure-launcher\.c/);
+    assert.match(v2BoundaryFixture, /NoNewPrivs:/);
+    assert.match(v2BoundaryFixture, /managed-config\.js --restrict-sensitive-files false --plugin-enabled true/);
+    assert.match(v2BoundaryFixture, /V2 server accepted project \.opencode content/);
+    assert.match(v2BoundaryFixture, /OPENCODE_MCP_TOOL_PROFILE=full/);
+    assert.match(v2BoundaryFixture, /opencode-v2-self-test --quiet/);
+    assert.match(v2SelfTest, /PR_SET_DUMPABLE/);
+    assert.match(v2SelfTest, /os\.O_NOFOLLOW/);
+    assert.match(v2SelfTest, /urllib\.request\.ProxyHandler\(\{\}\)/);
+    assert.match(v2SelfTest, /NoRedirectHandler/);
+    assert.match(v2SelfTest, /signal\.alarm\(SELF_TEST_DEADLINE_SECONDS\)/);
+    assert.match(v2SelfTest, /fnmatch\.fnmatchcase/);
+    assert.match(v2SelfTest, /agent\.get\("permissions"\)/);
+    assert.match(v2SelfTest, /homeassistant_remember_decision/);
+    assert.match(v2SelfTest, /homeassistant_native_HassTurnOn/);
+    assert.match(v2SelfTest, /mcp-enabled/);
+    assert.match(v2SelfTest, /native-mcp-enabled/);
+    assert.doesNotMatch(v2SelfTest, /\/api\/session|method="DELETE"/);
+    assert.match(smokeTest, /timeout --signal=TERM --kill-after=10s 60s/);
+    assert.doesNotMatch(devcontainerAcceptance, /curl[^\n]*-u/);
+    assert.match(
+      read(ROOTFS, "opt", "opencode-v2-homeassistant", "secure-launcher.c"),
+      /"\/usr\/local\/libexec\/opencode-v2", "serve"/,
+    );
+    assert.match(dockerfile, /cc -shared -fPIC/);
+    assert.match(dockerfile, /opencode-v2-non-dumpable\.so/);
+    assert.match(dockerfile, /source=test\/v2-boundary-fixture\.sh/);
+    assert.match(dockerfile, /FROM runtime AS boundary-test/);
+    assert.match(dockerfile, /FROM runtime AS final/);
+    assert.match(dockerfile, /timeout --signal=TERM --kill-after=10s 240s/);
+    assert.doesNotMatch(dockerfile, /Skipping architecture-neutral V2 boundary fixture/);
+  });
+
+  it("declares a complete s6 service graph", () => {
+    const graph = path.join(ROOTFS, "etc", "s6-overlay", "s6-rc.d");
+    const services = fs
+      .readdirSync(graph, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== "user")
+      .map((entry) => entry.name);
+
+    for (const service of services) {
+      assert.ok(fs.existsSync(path.join(graph, service, "type")), `${service} has no type`);
+      const dependencies = path.join(graph, service, "dependencies.d");
+      if (!fs.existsSync(dependencies)) continue;
+      for (const dependency of fs.readdirSync(dependencies)) {
+        assert.ok(
+          fs.existsSync(path.join(graph, dependency, "type")),
+          `${service} depends on missing service ${dependency}`,
+        );
+      }
+    }
+
+    for (const service of fs.readdirSync(path.join(graph, "user", "contents.d"))) {
+      assert.ok(fs.existsSync(path.join(graph, service, "type")), `user bundle includes missing service ${service}`);
+    }
+  });
+
+  it("reserves supervised lifecycle and Ingress checks for the devcontainer", () => {
+    assert.doesNotMatch(v2BoundaryFixture, /kill -KILL "\$\{SIDECAR_PID\}"/);
+    assert.match(devcontainerAcceptance, /s6-svc -k \/run\/service\/ha-opencode-v2-mcp-sidecar/);
+    assert.doesNotMatch(devcontainerAcceptance, /s6-svc -d \/run\/service\/ha-opencode-v2-mcp-sidecar/);
+    assert.match(devcontainerAcceptance, /new_sidecar_pid.*old_sidecar_pid/);
+    assert.match(devcontainerAcceptance, /http:\/\/127\.0\.0\.1:8123\/api\/hassio_ingress\/\$\{INGRESS_TOKEN\}\//);
+    assert.match(devcontainerAcceptance, /\/usr\/local\/bin\/opencode-smoke-test/);
+    assert.match(devcontainerAcceptance, /readlink "\/proc\/\$\{tui_pid\}\/cwd" >\/dev\/null 2>&1/);
+  });
+
+  it("bounds every process in the in-image migration fixture", () => {
+    assert.match(dockerfile, /timeout --signal=TERM --kill-after=10s 180s/);
+    assert.match(dockerfile, /python3 \/tmp\/v2-forward-fixture\.py/);
+    assert.match(read(ADDON_DIR, "test", "v2-forward-fixture.py"), /timeout=90/);
+    assert.doesNotMatch(dockerfile, /V1_SERVER_PID|exec opencode serve/);
   });
 
   it("ships OpenSSH client tools for Git SSH remotes", () => {
@@ -159,10 +388,6 @@ describe(`${CHANNEL} bundled runtime precedence`, () => {
     const mustDisable = [
       path.join("rootfs", "etc", "s6-overlay", "s6-rc.d", "init-opencode", "run"),
       path.join("rootfs", "etc", "s6-overlay", "s6-rc.d", "ha-opencode", "run"),
-      path.join("rootfs", "etc", "s6-overlay", "s6-rc.d", "ha-opencode-server", "run"),
-      path.join("rootfs", "etc", "s6-overlay", "s6-rc.d", "ha-openchamber", "run"),
-      path.join("rootfs", "usr", "local", "bin", "opencode-session.sh"),
-      path.join("rootfs", "usr", "local", "bin", "ha-readonly"),
     ];
     for (const relative of mustDisable) {
       assert.match(
@@ -171,9 +396,14 @@ describe(`${CHANNEL} bundled runtime precedence`, () => {
         `${relative} does not disable OpenCode auto-update`,
       );
     }
+    assert.match(
+      read(ROOTFS, "opt", "opencode-v2-homeassistant", "secure-launcher.c"),
+      /OPENCODE_DISABLE_AUTOUPDATE.*true/,
+    );
+    assert.match(read(ROOTFS, "opt", "opencode-v2-homeassistant", "tui-launcher.c"), /OPENCODE_DISABLE_AUTOUPDATE.*true/);
   });
 
-  it("tells OpenChamber the certified runtime cannot be upgraded in place", () => {
+  it("attaches OpenChamber to the managed backend with a scrubbed environment", () => {
     const openchamber = read(
       ROOTFS,
       "etc",
@@ -183,8 +413,11 @@ describe(`${CHANNEL} bundled runtime precedence`, () => {
       "run",
     );
 
-    assert.match(openchamber, /OPENCHAMBER_BUNDLED_OPENCODE_CLI_DIR="\/usr\/local\/bin"/);
-    assert.match(openchamber, /OPENCHAMBER_BIN="\/usr\/local\/bin\/openchamber"/);
+    assert.match(openchamber, /exec sleep infinity/);
+    assert.match(openchamber, /exec env -i/);
+    assert.match(openchamber, /OPENCODE_HOST="http:\/\/127\.0\.0\.1:4100" OPENCODE_SKIP_START="true"/);
+    assert.match(openchamber, /LD_PRELOAD="\/usr\/local\/lib\/opencode-v2-non-dumpable\.so"/);
+    assert.doesNotMatch(openchamber, /SUPERVISOR_TOKEN|OPENCODE_SERVER_PASSWORD|source \/data\//);
   });
 
   it("carries no update-policy option or plumbing", () => {
@@ -214,46 +447,11 @@ describe(`${CHANNEL} bundled runtime precedence`, () => {
   });
 });
 
-describe(`${CHANNEL} generated OpenCode configuration contract`, () => {
-  const template = JSON.parse(read(ROOTFS, "opt", "ha-mcp-server", "opencode-ha.json"));
-
-  it("runs the bundled MCP server and language server", () => {
-    assert.deepEqual(template.mcp.homeassistant.command, ["node", "/opt/ha-mcp-server/index.js"]);
-    assert.deepEqual(template.mcp.homeassistant_native.command, [
-      "node",
-      "/opt/ha-mcp-server/ha-native-mcp-proxy.js",
-      "assist",
-    ]);
-    assert.deepEqual(template.lsp["ha-yaml"].command, [
-      "node",
-      "/opt/ha-lsp-server/server.js",
-      "--stdio",
-    ]);
-    assert.deepEqual(template.formatter.prettier.command, ["prettier", "--write", "$FILE"]);
-  });
-
-  it("keeps the native MCP bridge opt-in", () => {
-    assert.equal(template.mcp.homeassistant_native.enabled, false);
-  });
-
-  it("loads the core MCP instructions", () => {
-    assert.ok(template.instructions.includes("/opt/ha-mcp-server/MCP_CORE_INSTRUCTIONS.md"));
-  });
-
-  it("asks before edits and before mutating shell commands", () => {
-    assert.equal(template.permission.edit, "ask");
-    for (const pattern of ["yq -i*", "sed -i*", "tee *", "rm *", "mv *"]) {
-      assert.equal(
-        template.permission.bash[pattern],
-        "ask",
-        `permission.bash['${pattern}'] should stay 'ask'`,
-      );
-    }
-  });
-
+describe(`${CHANNEL} native configuration assets`, () => {
   it("names every profile instruction file the init service can select", () => {
     const init = read(ROOTFS, "etc", "s6-overlay", "s6-rc.d", "init-opencode", "run");
-    assert.match(init, /MCP_PROFILE_\$\(echo "\$\{MCP_TOOL_PROFILE\}"/);
+    assert.match(init, /--mcp-profile "\$\{MCP_TOOL_PROFILE\}"/);
+    assert.doesNotMatch(init, /opencode-ha\.json|\.permission\.bash/);
     for (const profile of ["COMPACT", "CONFIGURATION", "FULL"]) {
       assert.ok(
         fs.existsSync(path.join(ROOTFS, "opt", "ha-mcp-server", `MCP_PROFILE_${profile}.md`)),

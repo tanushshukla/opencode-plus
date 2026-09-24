@@ -1,7 +1,8 @@
 #!/command/with-contenv bashio
 # Shared ingress router. s6 owns each UI backend independently.
 export NODE_OPTIONS="--max-old-space-size=768"
-export HA_INGRESS_UI=$(bashio::config 'interface_mode' 2>/dev/null || echo "terminal")
+# Both interfaces attach to the same supervised V2 backend.
+export HA_INGRESS_UI=$(cat /data/.interface_mode 2>/dev/null || echo "terminal")
 export OPENCHAMBER_UPSTREAM_PORT=8101
 if [ "${HA_INGRESS_UI}" != "openchamber" ]; then
     export HA_INGRESS_UI="terminal"

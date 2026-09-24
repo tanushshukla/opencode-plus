@@ -21,8 +21,7 @@ REPOYAML="$ROOT/repository.yaml"
 HA_OPENCODE_RUN="$ROOT/ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-opencode/run"
 HA_OPENCHAMBER_RUN="$ROOT/ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber/run"
 HA_OPENCHAMBER_INGRESS_RUN="$ROOT/ha_opencode/rootfs/etc/s6-overlay/s6-rc.d/ha-openchamber-ingress/run"
-S6_TEST="$ROOT/ha_opencode/test/openchamber-s6-services.test.js"
-MCP_TEST="$ROOT/ha_opencode/test/ha-mcp-ingress.test.js"
+RUNTIME_TEST="$ROOT/ha_opencode/test/runtime-contract.test.js"
 MARKER='# --- opencode-plus overlay ---'
 BUMP="${1:-}"
 
@@ -78,7 +77,7 @@ fi
 # --- ha-openchamber-ingress/run: route the shared ingress proxy through the
 # image-service wrapper (loopback 8101) instead of straight to ttyd (8100) or
 # OpenChamber (3010). The proxy itself keeps 8099 so its remote-address-bound
-# routes (/terminal/quit, /ha-mcp) still see the Supervisor socket.
+# /ha-mcp route still sees the Supervisor socket.
 if grep -Eq '^ *export OPENCHAMBER_UPSTREAM_PORT=(3010|8100)$' "$HA_OPENCHAMBER_INGRESS_RUN"; then
   sedi -E 's/^( *export OPENCHAMBER_UPSTREAM_PORT=)(3010|8100)$/\18101/' "$HA_OPENCHAMBER_INGRESS_RUN"
   changed=1
@@ -95,16 +94,10 @@ if grep -q ' -p 8089 \\$' "$HA_OPENCODE_RUN"; then
 fi
 
 # --- upstream tests: accept the overlay's upstream port on the stable channel --
-if grep -q 'OPENCHAMBER_UPSTREAM_PORT=3010\$/m' "$S6_TEST"; then
-  sedi 's|OPENCHAMBER_UPSTREAM_PORT=3010\$/m|OPENCHAMBER_UPSTREAM_PORT=(?:3010\|8101)$/m|' "$S6_TEST"
-  changed=1
-fi
-if grep -q 'export OPENCHAMBER_UPSTREAM_PORT=8100\\s+fi' "$S6_TEST"; then
-  sedi 's|export OPENCHAMBER_UPSTREAM_PORT=8100\\s+fi|export OPENCHAMBER_UPSTREAM_PORT=(?:8100\|8101)\\s+fi|' "$S6_TEST"
-  changed=1
-fi
-if grep -q '/OPENCHAMBER_UPSTREAM_PORT=8100/' "$MCP_TEST"; then
-  sedi 's|/OPENCHAMBER_UPSTREAM_PORT=8100/|/OPENCHAMBER_UPSTREAM_PORT=(?:8100\|8101)/|' "$MCP_TEST"
+# Upstream 3.0 folded the old s6-services/ha-mcp-ingress assertions into
+# runtime-contract.test.js.
+if [ -f "$RUNTIME_TEST" ] && grep -q 'export OPENCHAMBER_UPSTREAM_PORT=8100\\s+fi' "$RUNTIME_TEST"; then
+  sedi 's|export OPENCHAMBER_UPSTREAM_PORT=8100\\s+fi|export OPENCHAMBER_UPSTREAM_PORT=(?:8100\|8101)\\s+fi|' "$RUNTIME_TEST"
   changed=1
 fi
 

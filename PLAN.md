@@ -1,8 +1,36 @@
-# OpenCode V2: remaining work toward stable 3.0
+# OpenCode V2: stable 3.0 release record
 
 Updated: 2026-09-23. This is the single shared plan for this work, tracked in Git.
 Only open tasks appear as checkboxes; close them with concrete evidence and keep
 the remaining list current instead of accumulating historical plans.
+
+## Stable 3.0.0 promotion — 2026-09-23
+
+- **Published:** `v3.0.0` at `3ccd803f67ec070f4a42b23757bae72bff7280d2`
+  (adoption `8ef709a`, release-link correction `3ccd803`); storefront `8f66fa2`
+  advertises stable `3.0.0`. Beta remains `3.0.0b22`.
+- Repository CI `35875611963`, native stable image checks `35875460284`, initial
+  publication `35875472577`, release `35876412293` and final tag publication
+  `35876412229` passed. Both native release builds ran the V2 boundary fixture.
+- Release assets `container-images.md` and `image-manifest.txt` are attached;
+  the manifest attachment agrees with the registry's final index
+  `sha256:8324ebe345b4cbfdaaad27efe071f9e0f549145e27e49345a978248439e9b45b`.
+  Platform manifests: amd64
+  `sha256:c066452dbbe0dcbd7aff5efd770c10e027f4f9b93ec9c47327edf2d1949a5cb1`, arm64
+  `sha256:4b075537d434062bc6bee06cbc73d0498d02c53fe5cbbc5d78aaafb3d0e4646f`.
+- User explicitly ended the broad acceptance campaign and authorized stable
+  publication from final beta b22. The earlier gate table below is historical;
+  unperformed HAOS/soak/account checks remain unperformed, not implicitly passed.
+- Adopt b22 runtime, protected migration, integration workers, UI patches and
+  tests into the stable folder. Preserve stable slug/image, `/data`, notes,
+  startup-hook paths and existing stable changelog history. Beta stays separate.
+- Stable release notes consolidate the user-visible changes since 2.5.6. The
+  upgrade guide covers backup/recovery, provider reauthentication, LAN/custom
+  config changes, upstream preview status and unresolved custom-skill discovery.
+- Retire V1-only helpers and the SIGHUP-based terminal quit overlay rather than
+  applying its process-control assumptions to V2. The guide records this change.
+- Stable CI adopts the V2 contracts and target-native boundary stage. Publication
+  completed after repository checks and native amd64/arm64 stable image builds.
 
 ## Starting point
 
@@ -53,6 +81,47 @@ the remaining list current instead of accumulating historical plans.
   Use a compatible provider/model for read-only acceptance without weakening the
   agent's permissions. This evidence does not certify every free model.
 
+## Stable-promotion critical path
+
+Release completed (2026-09-23): `beta-v3.0.0b21` tags implementation commit
+`a2540752ea69f783650f66dc1d87307b384ac4e9`. PR Checks `35848521142` and native
+amd64/arm64 image checks `35848521155` passed. Build/publication `35849088283`
+passed before tag push; Create Beta Release `35862139707` then published the
+prerelease and storefront commit `a1c9105`. Tag build `35862139570` also passed
+both native boundary fixtures and publication, attaching `container-images.md`
+and `image-manifest.txt`. Verified final multi-architecture image index:
+`sha256:e3f1303b8be4b8560500f91f9d34a608f10a51cf4444b31ea18fe09f771c25cb`.
+Stable remains `2.5.6`. Real HAOS beta acceptance contributes to the gates below;
+it does not automatically qualify a separately adopted stable-channel image.
+
+Scope directive (2026-09-23): focus solely on promotion to stable `3.0.0`.
+Use the gates below to prioritize the detailed work items. Add implementation
+only to restore supported behavior or correct a demonstrated release blocker.
+
+| Gate | Required result | Relevant work |
+| --- | --- | --- |
+| 1. Supported configuration works | Finish authenticated LAN access and verify the implemented provider/PPQ options under supervision. Invalid settings fail visibly; credentials stay isolated; all clients use the existing backend. | I3, I4; I5 only where packaging/startup is affected |
+| 2. Existing users can upgrade and recover | Representative stable/earlier-beta upgrades and a real HA backup/restore preserve sessions, supported credentials, permissions and customizations. Failed conversion preserves input and can be retried. | V3, V4 |
+| 3. Core workflows are reliable | Verify chat/streaming/reconnect, permissions, approved configuration edit/format/validate/reload, MCP concurrency, editor/worker recovery and session resume on the candidate. Use representative supported provider/auth flows. | V1, V2, V5, V6 |
+| 4. The actual stable candidate is qualified | Review stable-channel adoption; pass native amd64/arm64 builds and supervised acceptance; complete the planned seven-day HAOS soak on both architectures with no blocking defects. | I6, V8, V9 |
+| 5. Release artifacts agree | Publish the approved stable images and matching version, release notes and storefront metadata, with Supervisor retaining sole update ownership. | I7 |
+
+- **I4 implementation and supervised amd64 acceptance passed.** Continue with
+  representative upgrade/provider qualification; native ARM and final stable
+  candidate testing remain required. Do not add unrelated remote-access features.
+- **Next acceptance priority: V4.** Upgrade and backup/restore safety is required
+  before asking existing stable users to move from V1 to V2.
+- Freeze the candidate after release-blocking changes. A subsequent fix requires
+  relevant requalification; earlier-image evidence is not exact-candidate evidence.
+- D1–D4, exhaustive V7 hardware/tool permutations and cosmetic/dead-code cleanup
+  are not independent reasons to delay promotion. Reopen them on the critical
+  path only for a reproduced defect in a supported release workflow, a security
+  or data-loss concern, or a misleading release claim. Keep unsupported or
+  unqualified capabilities explicit in the release documentation.
+- Account-dependent checks and access to amd64/arm64 HAOS installations are
+  concrete external prerequisites. Report missing access directly; do not replace
+  those results with more mock tests or silently mark them passed.
+
 ## 1. Implementation work
 
 - **I1 — OpenChamber editor LSP implemented and live-rendered acceptance passed.** Connect the editor's diagnostics and
@@ -95,17 +164,63 @@ the remaining list current instead of accumulating historical plans.
   the official devcontainer (Node `24.15.0`). Final documentation/runtime/state
   integration checks passed 46/46 on Windows. Remaining: other environment
   settings, full native startup, real accounts and actual PPQ upstream acceptance.
-- [ ] **I4 — Authenticated LAN access.** Implement remote V2 client attachment,
-  CORS and OpenChamber LAN access against the existing managed backend. The saved
-  LAN options currently have inactive services. Test authentication, allowed and
+  Follow-up (2026-09-23, after b20): added the documented `websearch` selection
+  (`exa`, `firecrawl`, `parallel`, `tavily`, `random`, or disabled) to the validated
+  native subset. The pinned schema accepts extensible search IDs, so the app also
+  checks the shipped provider list explicitly. Search API keys remain separately
+  staged; managed permissions and reserved variables are unchanged. Focused
+  provider/docs/runtime/state checks passed 80/80 on Node `24.15.0`; the standalone
+  controlled provider/PPQ request fixture also passed. Linux root loader coverage
+  passed for all four search keys. The extended native boundary fixture passed
+  first against the existing amd64 image with the changed validator mounted read-only,
+  then in the rebuilt working-tree boundary-test image:
+  generated config -> secured environment -> native launcher -> authenticated
+  model request, with `websearch:false` absent from model tools. This is component
+  evidence, not supervised option/restart, real-search, ARM or HAOS acceptance.
+- **I4 — Authenticated LAN access implemented; supervised amd64 acceptance passed.** Implement remote V2 client attachment,
+  CORS and OpenChamber LAN access against the existing managed backend. Test
+  authentication, allowed and
   rejected browser origins, client attachment and service ownership.
   Source-grounded design is available: retain loopback backend/UI and use the
   existing LAN service slots as authenticated frontends with a separate LAN
-  credential (never distribute the internal backend credential). Before coding,
-  settle the HTTPS termination contract and whether enabling native OpenChamber
-  login on the single UI may also require a login through Ingress. This is shared
+  credential (never distribute the internal backend credential). User-approved
+  design (2026-09-23): require HTTPS termination at a reverse proxy and use native
+  OpenChamber login; when LAN mode is enabled, the extra OpenChamber login through
+  Ingress is accepted. Implementation must define trusted proxy/origin handling
+  and test it before enabling the existing listener slots. This is shared
   administrator access, not multi-user/read-only-account isolation. Keep editor
   LAN requests denied; password rotation must invalidate sessions and streams.
+  Promotion-focused source review: the pinned preview accepts `uiPassword` as a
+  startup option, but its UI JWT verification uses a persisted signing secret
+  without checking the current password. Simply setting a new password is not
+  sufficient evidence of session revocation. Verify native cookie/client-token
+  invalidation and trusted-proxy handling before activating either listener.
+  Implementation (2026-09-23 working tree): opt-in `4096` API and `4097` native UI
+  frontends use separate `lan_password`, explicit HTTPS public origins and exact
+  trusted proxy IPs. They validate socket peer, preserved Host, HTTPS forwarding
+  and browser Origin, sanitize forwarding headers, deny editor/inbound-MCP Ingress
+  paths, and preserve HTTP bodies, SSE and WebSocket traffic. No extra backend.
+  Credentials/configuration are staged root-only and loaded into non-dumpable
+  frontend processes, never their arguments or inherited environment. Native UI
+  cookies and paired-client authentication use a separate private `/run` directory;
+  app restart clears authentication state and closes streams while retaining UI
+  settings and conversations. Password changes require app restart.
+  Eight behavioral LAN tests passed on Windows and Linux. Combined LAN/runtime/
+  state/provider-docs/editor-origin checks passed 59/59; migration/CLI/runtime-guard
+  checks passed 15/15. Actual pinned native UI auth tests passed login plus cookie
+  and paired-token revocation across activation. Native amd64 boundary image passed
+  API access through separate LAN authentication, origin rejection, forward migration,
+  policy self-test (36 passed/1 optional skip), provider and Zigbee fixtures.
+  Image index: `sha256:259e65aae7839a4fef66c0246120cc9ce96ec84bc5e2d3b1da460ea4c9be782e`.
+  Supervised acceptance passed through a certificate-verified HTTPS proxy in the
+  official amd64 devcontainer: API authentication, native UI login, allowed/rejected
+  origins, common backend session IDs, SSE termination and old-password/cookie/
+  paired-token rejection after credential rotation. Native login via the new
+  password worked. The original terminal interface and disabled LAN options were
+  restored. The first run hit a test-only response-header casing assumption; fixed
+  to normalize HTTP header names, then the complete scenario passed.
+  Native ARM and representative interactive remote-client qualification remain
+  in V8/V1; these component/protocol checks do not claim every desktop client.
 - [ ] **I5 — Finish obsolete-artifact cleanup.** Inventory unused SDK dependencies,
   generated files, caches, helpers and s6 definitions. Remove only superseded
   app-owned artifacts after required data is preserved. Keep user SSH files,
@@ -123,6 +238,20 @@ the remaining list current instead of accumulating historical plans.
   HTTP/HTTPS form-Origin scenarios (27 passed, 3 platform skips in that file).
   Removed unused init-marker writes and PPQ bookkeeping without deleting old
   persisted files. Final integration checks and Linux qualification remain pending.
+  Follow-up: a fresh image build exposed an unlocked PPQ transitive-dependency
+  failure (npm 404 fetching `@ai-sdk/provider@4.0.18`). The standalone proxy/tsx
+  now has a repository lockfile under `rootfs/opt/ppq-private-runtime`, retaining
+  PPQ `0.1.0`, tsx `4.20.6`, tinfoil `1.2.1` and the already-tested AI SDK provider
+  `4.0.17` tree. The unused OpenClaw peer is excluded at resolution time, replacing
+  install-then-delete cleanup. Its service uses absolute image-owned paths;
+  user npm prefixes cannot select a different package. Runtime pin tests passed
+  30/30. The amd64 working-tree image build passed with a fresh PPQ install,
+  tsx/proxy/tinfoil import smoke, forward migration and extended native boundary
+  checks (authenticated policy self-test: 36 passed, 1 optional skip). Image tag:
+  `ha-opencode-candidate:20260923-i3-boundary`; image index:
+  `sha256:0edeb4fef5d34553673a3acbcbe933a501f6bfc4c95567bcbb1ad3515ac0f4bf`.
+  This boundary-test image was not deployed over the Supervisor test app. Native
+  ARM, supervised PPQ startup and real enclave/upstream acceptance remain open.
 - [ ] **I6 — Stable-channel adoption.** After feature and upgrade qualification,
   port the V2-only implementation into `ha_opencode`, preserving stable identity
   and its own data. Review the disabled promotion helper and channel-specific
@@ -149,6 +278,43 @@ the remaining list current instead of accumulating historical plans.
 
 ## 2. Investigation and operational work
 
+### Final-beta follow-up (3.0.0b22)
+
+- Published `beta-v3.0.0b22` on 2026-09-23 from
+  `9b34cecc61dda67a5999c0cde7dc93d2574fdee0` (implementation `ccd1501`, build-context
+  fixture inclusion `9b34cec`); storefront version commit `ed125bc`.
+  PR Checks `35871420141` passed after one unchanged browser-OAuth timeout rerun;
+  native amd64/arm64 checks `35871420111`, initial publication `35872040313`, release
+  `35872963835` and final tag publication `35872963833` all passed.
+  Both `container-images.md` and `image-manifest.txt` are attached to the release;
+  registry inspection agrees with the attached final index:
+  `sha256:68ddbc906b10a0f2b50fd4012b26de576bebbcece3b2e33fc2592971d5b3ae0f`.
+  Final platform manifests: amd64
+  `sha256:c688dee15eceba3bc8265ceb6db3fa7af4575ca3a48d29a1d580ce282c9193cc`, arm64
+  `sha256:1f1b721f86731a9fdf7ead6e7250984e3fbb60bc709b480d561e2dd79f4b948e`.
+  Stable remains `2.5.6`; this publication is the requested final beta candidate.
+- User ended general acceptance testing and requested two targeted OpenChamber
+  changes, followed by commit/push and publication of a final beta candidate.
+- Usage root cause verified in pinned preview source: its auth reader resolves
+  `HOME=/data` to the retained V1 store, while the backend uses the activated V2
+  generation. Bootstrap now supplies that generation's database path from the
+  protected readiness marker; quota reads stay read-only and never merge/fall
+  back to V1 credentials. Account ordering matches pinned OpenCode, refreshed
+  credentials are re-read, and quota authorization errors are distinguished from
+  conversation/session expiry. OpenCode retains sole OAuth refresh ownership.
+- New-chat selection now consumes the already-persisted last-used model when
+  present in the catalog and protects that choice from asynchronous discovery.
+  Configured defaults remain the fallback; the selected agent and existing
+  session selections retain their own behavior. Model memory is browser-local.
+- Stable promotion is separate from this beta release. Prior unresolved findings
+  (including custom-skill discovery) are retained rather than marked passed.
+- Focused checks passed against the actual patched preview revision: 73 native
+  store tests (including three new model-memory cases), read-only SQLite quota
+  credential/login/refresh/disconnect regression, and 42 runtime/update-guidance
+  contracts. Quota requests used controlled HTTP responses; production OpenAI
+  quota access is not claimed. Release image builds repeat these focused checks
+  with the pinned Node/Bun runtimes on each native architecture.
+
 These need diagnosis or access to an affected environment; they are not merely
 unchecked tests. Record the cause before adding an implementation fix.
 
@@ -158,6 +324,19 @@ unchecked tests. Record the cause before adding an implementation fix.
   then fix or integrate an upstream correction and pin it. The local no-ZHA
   instance returns within five seconds; unbounded WebSocket receives in installed
   zigporter `1.4.2` are a lead, not an established cause.
+  Operator self-check follow-up: the stock first-run gate checked for a `.env`
+  file before accepting environment credentials. The existing `zigporter_run`
+  MCP tool already supplies HA credentials in the isolated sidecar; direct agent
+  shell calls do not. The beta now pins zigporter `1.4.2` and adapts its managed
+  bootstrap: use explicit environment, skip interactive setup, ignore user `.env`
+  files, and give direct credential-less CLI calls actionable MCP guidance.
+  Z2M preflight omits authentication when contacting the separate Z2M endpoint;
+  an empty token was insufficient because upstream still formed a Bearer header.
+  Real check/inspect integration passed against controlled HA HTTP/WebSocket
+  fixtures in the native amd64 image, including first run without a `.env`,
+  ignored project `.env` settings, credential-less shell guidance, missing-device
+  output and ZHA-only migration-preflight failure. No new MCP interface was added.
+  ZHA hardware/hang acceptance remains open.
 - [ ] **D2 — Diagnostic-created extra daemon.** On the affected installation,
   identify the extra process's PID, owner, start time, endpoint and data roots.
   Establish whether it wrote separate session data before controlled cleanup.
@@ -182,8 +361,46 @@ unchecked tests. Record the cause before adding an implementation fix.
   Firecrawl, Parallel and Tavily account/env-key integrations and selection via
   `websearch.provider`. Check I3's environment/config propagation alongside a
   controlled provider before attributing interruption to the upstream service.
+  Follow-up: the app's raw-config allowlist previously rejected `websearch`;
+  that configuration gap is fixed and documented under I3. This does not establish
+  the cause of interrupted searches. Real search execution/cancellation remains
+  open; controlled model traffic and key forwarding alone do not close D4.
 
 ## 3. Verification of implemented features
+
+### Operator self-check follow-up (reported against current beta)
+
+- User reports authenticated service/API and 37/37 policy checks passed, both MCP
+  integrations connected, live-state/history/calendar/hab/ESPHome reads worked,
+  configuration validation and an authenticated dashboard screenshot passed, and
+  LSP diagnosed a malformed draft, completed values and resolved an include.
+  Record as operator-reported scenario evidence; exact architecture/image and
+  HA versions were not supplied, and no writes, restore or soak were exercised.
+- Confirmed/fixed job reporting: `errors: []` was truthy in `get_running_jobs` and
+  `get_update_progress`, unlike the health summary. Both tools and child-job
+  status/metadata now share the nonempty-error-array predicate. Regression covers
+  empty/null/omitted errors, actual failures, running jobs and child jobs.
+- Reproduced an MCP session-interference defect: initializing a second client
+  made the first client's in-flight call time out. Each authenticated session now
+  owns a separate SDK Server/transport/request-ID space, with 32-session capacity,
+  explicit deletion and idle reclamation that preserves active work. Tests cover
+  overlapping calls, colliding-ID cancellation isolation, capacity and termination.
+  This fixes a demonstrated failure mode, not proof of the operator incident's
+  exact trigger. Repeat the original parallel-log scenario after deployment.
+- Full MCP regression on Node `24.15.0`/Windows: 586 passed, 10 optional/platform
+  skips; the expanded transport suite then passed 13/13, including idle expiry
+  with an in-flight call. Full Linux MCP regression: 594 passed, 3 optional browser
+  skips, including subprocess cancellation/descendant cleanup and profile enforcement.
+- Linux provider/docs/runtime/state checks passed 82/82; skill checks passed 20/20
+  after normalizing only staged fixture Markdown from Windows CRLF to Git/CI LF.
+  The first skills run rejected those line endings, not the frontmatter content.
+- Native amd64 working-tree boundary-test build passed: forward migration,
+  credential ownership, authenticated policy (36 passed, 1 optional skip),
+  controlled provider request/disabled search and pinned Zigbee integration.
+  Image tag: `ha-opencode-candidate:20260923-selfcheck-boundary`; image index:
+  `sha256:1ad12dd793f480c5eec917768b363b3830fe7f3f11a6c8f6d9bce7b5a6d8ab21`.
+  This image has not been deployed over the Supervisor test app or published.
+  Native ARM and supervised/HAOS acceptance remain open.
 
 These items currently represent missing evidence rather than known missing
 functionality. If a check fails, add a specific implementation or investigation
@@ -215,6 +432,17 @@ item instead of treating all untested behavior as broken.
   and instructions survive restarts and upgrades and actually reach sessions.
   Finish presentation, focus/context and startup-hook option checks, including
   clear unsupported combinations. Persistent skill discovery is already wired.
+  Qualification failure on the published b21 image (2026-09-23): a newly added
+  valid custom skill under `/data/.config/opencode/skills/<id>/SKILL.md` survives
+  Supervisor restart but is missing from `/api/skill`. The five shipped HA skills
+  remain present. Bounded checks also failed after location reload with a flat
+  Markdown skill, a copied shipped skill under a new ID, explicit 0755/0644 modes,
+  and a direct authenticated backend read (not just the managed CLI). All synthetic
+  files were cleaned up. The effective native configuration lists the intended
+  skill directory. Upstream `v2.0.13` skill-source/parser code documents and scans
+  these forms; root cause remains unisolated. Do not mark custom-skill discovery
+  passed or change runtime pins to work around it. This supported-workflow gap
+  needs resolution before promotion.
 - [ ] **V4 — Representative forward upgrades and backup/restore.** Exercise
   stable `2.5.6`, earlier beta and b17 data, preserving sessions, V2 credentials,
   permission rules, decision notes and supported customizations. Verify normal
@@ -226,6 +454,21 @@ item instead of treating all untested behavior as broken.
   Created and verified Supervisor partial backup `c1b260f9` of the beta app before
   replacement; archive retained in the devcontainer's backup volume with mode
   `0600`. Stable app unchanged. Upgrade and restore checks are not yet complete.
+  Pre-LAN-qualification backup (2026-09-23): Supervisor beta-app partial backup
+  `01204a59`, `/mnt/supervisor/backup/01204a59.tar`, verified present and protected
+  with mode `0600`. This is preparation, not evidence of a completed restore.
+  Real restore evidence (2026-09-23, amd64 devcontainer):
+  `HA_BACKUP_RESTORE_ACCEPTANCE=1 python3 scripts/devcontainer-backup-restore-acceptance.py`
+  created an API session with a shell-deny permission and a uniquely named custom
+  skill, made Supervisor backup `15e406b6`, changed only those synthetic assets,
+  restored the beta app through Supervisor, and verified the original session
+  IDs/options plus the recovered session title/permissions and skill. Synthetic
+  assets were removed afterward. Archive `/mnt/supervisor/backup/15e406b6.tar` is
+  retained with mode `0600`. The exact working-tree candidate image survived the
+  restore and reached the managed backend normally. This closes the beta-app
+  backup/restore scenario; representative stable `2.5.6`/earlier-beta upgrades and
+  account-backed credential preservation remain open. HA configuration was not
+  included in or overwritten by this app-only restore.
 - [ ] **V5 — Providers and MCP.** Verify real API-key/OAuth sign-in and refresh,
   native and inbound MCP, and compact/configuration/full profiles. Check disabled
   options and read-only permissions at dispatch. Account-dependent flows remain
@@ -236,6 +479,29 @@ item instead of treating all untested behavior as broken.
   context delivery/compaction; app restart; sidecar/server crashes; plugin reload;
   and session resume. Native formatting already preserves HA YAML tags and user
   preferences and respects disabled formatting/read-only edits in runtime tests.
+  Published b21 amd64 devcontainer evidence (2026-09-23):
+  `scripts/devcontainer-config-acceptance.mjs` passed explicit pinned Prettier
+  formatting, MCP safe-write dry-run with unchanged input, actual safe write and
+  full Core validation, `script.reload`, and read-only loaded/off verification.
+  A malformed-YAML write was rejected while preserving the last valid file.
+  Cleanup used supported script deletion for the synthetic registry entry, then
+  restored the original YAML byte-for-byte through the safe writer, reloaded and
+  verified exact-entity absence. The test script was never executed; no existing
+  script or device was operated. This tests the formatter explicitly; prior native
+  formatter-hook contracts remain separate evidence.
+  An initial negative fixture using an invalid script mode was accepted by Core's
+  global check; it was not reloaded. The original YAML and synthetic registry entry
+  were recovered through supported APIs. Core validation alone does not prove an
+  integration's configuration loaded, reinforcing the required reload/runtime check.
+  `scripts/devcontainer-restart-acceptance.py` passed session/message/permission,
+  options and custom-skill-file persistence across Supervisor app restart; packaged
+  policy and authenticated LSP reconnection; and a resumed real free-model reply.
+  Its overall result remains FAIL because the custom skill was not discovered (V3).
+  Free `opencode/big-pickle` rejected generation with the test's session-specific
+  shell-deny rule, extending the known custom-agent free-tier limitation. The final
+  scenario checks permission persistence while idle, then resets only its own
+  synthetic session to defaults before the resumed request. All test sessions,
+  skill files and checkpoints were removed. No production restart was performed.
 - [ ] **V7 — Remaining tool surfaces.** Exercise MCP resources/prompts and
   permitted subagents, with read-only denials where applicable. Use controlled
   scenarios for device control, firmware/updates, deletion and secret rotation.
@@ -279,19 +545,88 @@ item instead of treating all untested behavior as broken.
   Tag-triggered build `35836946688` also passed and attached `container-images.md`
   and `image-manifest.txt` to the release. Verified final amd64/arm64 image index:
   `sha256:cda0cacf505c478c0c904cfb592f7fc99f5e8443ed8830ae902d9555dde28d17`.
+  Post-b20 working-tree LAN candidate (2026-09-23): official helper
+  `scripts/devcontainer-build-app.sh ha_opencode_beta` built image index
+  `sha256:494acc45f575324cecf3da0c239e70244ca3a62939afd80bfb460daf7cfe1055`.
+  It is locally tagged `ghcr.io/magnusoverli/ha_opencode_beta:3.0.0b20` for the
+  devcontainer, NOT the published b20 image. Supervisor update first pulled the
+  published image; the known local candidate was then retagged and activated via
+  stop/start, and its exact image ID was verified before qualification.
+  Standard supervised lifecycle acceptance passed (10 smoke checks, 1 interface
+  skip; policy self-test 36 passed/1 optional skip), followed by HTTPS LAN/rotation,
+  real app backup/restore and Chromium Ingress create/read/delete acceptance.
+  Preview/backend independent stop/start, absent-backend recovery, shared policy
+  and update-guidance checks also passed. Final staged Linux beta contracts:
+  222 passed, 1 optional DOM skip. Native ARM, remaining real-provider/account
+  scenarios, stable adoption and HAOS qualification remain open. No release or
+  repository push was performed; the devcontainer beta is left running this image
+  in terminal mode with both LAN listeners disabled, matching its original options.
+  Prerequisite check after qualification: Supervisor options report PPQ disabled,
+  no configured PPQ key, and no populated provider `*_API_KEY` env-var options.
+  This does not inspect or establish the absence of native stored OAuth credentials.
+  Real PPQ/private-inference acceptance needs an appropriate account configured
+  privately; controlled requests do not close that gate.
+  Published b21 follow-up (2026-09-23): after recovering the stopped official
+  devcontainer, protected beta backup `b2ac5d30` was created (mode 0600) and
+  Supervisor updated the development beta to the published release. Running image
+  index verified as `sha256:e3f1303b8be4b8560500f91f9d34a608f10a51cf4444b31ea18fe09f771c25cb`.
+  The opt-in OpenChamber driver passed real Chromium Ingress session CRUD, rendered
+  editor completion/diagnostic refresh, controlled-503 recovery and read-only editor
+  no-write checks, actual Zen/free-model reply display, Supervisor-only update
+  guidance, absent-backend recovery and independent UI stop/start. Original terminal
+  mode was restored. This closes those amd64 scenarios on the published b21 image;
+  it does not add arm64 HAOS or production-restart evidence.
 - [ ] **V9 — HAOS acceptance and soak.** Complete controlled HAOS acceptance on
   both architectures, then seven days of representative operation on each.
   Record versions, tool failures, crashes/restarts, orphan processes, resource
   growth and session continuity. Close blocking defects before I7's release.
+  User-supplied production report (2026-09-23 12:43–12:54 UTC): installed beta
+  `3.0.0b21`, amd64 HAOS 18.3/KVM, Core 2026.9.3, Supervisor 2026.09.3.
+  Non-disruptive acceptance reported 37 packaged policy checks passed; managed
+  loopback backend/UI and s6 ownership; successful OpenAI OAuth model/tool round
+  trips; HA state/history/logbook concurrency and subsequent MCP continuity;
+  native HA MCP; authenticated YAML LSP draft diagnostics/refresh/completion; and
+  credential-isolated ZHA device inspection. Bounded logs showed no blocking
+  failures. This is user-reported evidence, not a direct inspection from this
+  development session. No production changes or restart were performed.
+  Installed OCI identity remains unverified: the report began around the final
+  tag-build publication, so neither version label nor latest registry digest
+  alone identifies the image actually running on this host. Preserve the report
+  as version-labelled evidence until its installed digest is captured.
+  OpenChamber metadata discrepancy reconciled against immutable upstream source:
+  both `packages/web/package.json` and `packages/sdk/package.json` at pinned
+  revision `9fba129ddf968df1e5fb6916b84d3ceb35493198` declare `1.24.2`; the
+  app's declared preview identity is `2.0.0-preview.8`. This is not evidence of an
+  incorrect package. `/usr/local/share/openchamber-certified-version` records
+  the declared preview identity, not independent proof of the running image.
+  Remaining production checks: user-observed streaming/cancel/reconnect/editor,
+  approved app restart/session and permission continuity, source-version/baseline
+  upgrade evidence, approved harmless write/validate/reload, and seven-day soak.
+  PPQ and LAN were disabled (not applicable to this installation, not globally
+  qualified). Native arm64 build/boundary checks passed for b21; arm64 HAOS runtime
+  acceptance is still missing. Earlier devcontainer restore/lifecycle evidence
+  remains valid within its recorded candidate/platform scope.
+  Correction to the report's prospective LAN test: enabling OpenChamber LAN
+  also enables native login through Ingress; password rotation/app restart
+  invalidates both UI access paths' authentication state and interrupts the app.
+  User follow-up: production upgrade source confirmed as `3.0.0b20`; user manually
+  confirms OpenChamber streaming, session creation and cancellation work. Record
+  those three UI checks as operator-observed PASS. Old-session/permission and OAuth
+  sign-in preservation, browser reconnect and production restart are not implied.
 
 ## Execution order
 
-1. Finish I3, I4 and I5 with focused acceptance; preserve completed I1/I8 behavior.
-2. Investigate D1–D4 when the necessary installation/account/browser is available.
-3. Close V1–V7, recording scenario evidence and precise blockers. Run checks for
-   implemented features while independent implementation work proceeds.
-4. Perform reviewed stable adoption I6, then exact-candidate V8 and HAOS V9.
-5. Complete I7 and approve stable 3.0 only after remaining blockers are closed.
+1. Finish the release-required I3 acceptance and remaining representative client
+   checks; I4's implementation/amd64 HTTPS scenario is complete. Limit I5 to packaging/runtime
+   defects; preserve completed behavior and stop expanding feature scope.
+2. Complete V4 upgrade/restore and the V3 preservation checks, alongside bounded
+   candidate acceptance of the core workflows in gate 3. Record missing account
+   or hardware access as a concrete blocker.
+3. Fix only failures that block gates 1–3; keep optional investigations out of the
+   release sequence unless they meet the escalation criteria above.
+4. Perform reviewed stable adoption I6, freeze the candidate, then qualify its
+   exact amd64/arm64 images through V8 and the planned HAOS V9 soak.
+5. Complete I7 and approve stable 3.0 only after all five promotion gates pass.
 
 ## Working and verification references
 
@@ -304,9 +639,23 @@ item instead of treating all untested behavior as broken.
   - `scripts/devcontainer-acceptance.sh ha_opencode_beta`
   - `scripts/devcontainer-cli-acceptance.py` (`HA_MANAGED_CLI_ACCEPTANCE=1`)
   - `scripts/devcontainer-lsp-acceptance.mjs` inside the app (`HA_LSP_ACCEPTANCE=1`)
-  - `scripts/devcontainer-openchamber-acceptance.py` (`HA_OPENCHAMBER_ACCEPTANCE=1`;
+   - `scripts/devcontainer-openchamber-acceptance.py` (`HA_OPENCHAMBER_ACCEPTANCE=1`;
     includes the real Core Ingress browser/session check; additionally set
-    `HA_OPENCHAMBER_MODEL_ACCEPTANCE=1` for a real free-model first-message check)
+     `HA_OPENCHAMBER_MODEL_ACCEPTANCE=1` for a real free-model first-message check)
+   - `scripts/devcontainer-lan-acceptance.py` inside devcontainer Core
+     (`HA_LAN_ACCEPTANCE=1`, `HA_LAN_APP_HOST=<beta-container-IP>`; temporarily enables
+     LAN, tests through a certificate-verified local HTTPS proxy, rotates credentials
+     through restart, and restores original options; take a Supervisor backup first)
+   - `scripts/devcontainer-backup-restore-acceptance.py`
+     (`HA_BACKUP_RESTORE_ACCEPTANCE=1`; actual beta-app partial backup/restore with
+     a synthetic API session/permission and custom skill; preserves the recovery
+     archive and removes only its own test assets)
+   - `scripts/devcontainer-restart-acceptance.py` (`HA_RESTART_ACCEPTANCE=1`;
+     real free-model session before/after Supervisor restart, persistence and
+     policy/LSP checks; intentionally fails if custom-skill discovery is missing)
+   - `scripts/devcontainer-config-acceptance.mjs` inside the development beta app
+     (`HA_CONFIG_ACCEPTANCE=1`, root with the non-dumpable preload; requires an empty
+     standard `scripts.yaml` and full MCP profile; safe-write/reload/failure/cleanup)
   - `ha_opencode_beta/test/openchamber-request-body.mjs` runs against the pinned
     preview during image builds, checking chunked/fixed-length request forwarding.
   - `ha_opencode_beta/test/v2-forward-fixture.py` and `v2-upgrade-acceptance.py`

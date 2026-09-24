@@ -1,7 +1,7 @@
 ---
 name: "OpenCode+ Beta"
 description: "Beta channel for OpenCode - AI coding agent for Home Assistant. May contain experimental features."
-version: "3.0.0b20"
+version: "3.0.0b22"
 slug: "ha_opencode_beta"
 image: "ghcr.io/tanushshukla/ha_opencode_beta"
 url: "https://github.com/tanushshukla/opencode-plus"
@@ -122,9 +122,13 @@ options:
   cpu_mode: "auto"
 
   # --- 5. Network exposure -----------------------------------------------
-  # Saved LAN options are inactive pending authenticated V2 integration.
+  # Authenticated frontends to the existing backend; HTTPS reverse proxy required.
   enable_server: false
-  # Reserved browser origins for the future V2 LAN listener.
+  lan_password: ""
+  lan_trusted_proxies: []
+  server_public_url: ""
+  openchamber_public_url: ""
+  # Additional exact HTTPS browser origins for the API frontend.
   cors_origins: []
 
   # --- 6. Model providers ------------------------------------------------
@@ -147,8 +151,7 @@ options:
   # Optional LAN access to the OpenChamber web UI (only used when
   # interface_mode is openchamber). Serves OpenChamber at the root path on a
   # mappable network port so reverse proxies / tunnels can point straight at it.
-  # Warning: If you map 4097/tcp in Network settings, this exposes the
-  # OpenChamber UI on your LAN with no Home Assistant Ingress auth in front.
+  # Requires native OpenChamber login, also through Ingress while enabled.
   enable_openchamber_lan: false
   # Backend forwarding supports non-reserved provider *_API_KEY variables only.
   # Other variables retain separate shell/service handling, with a warning.
@@ -191,6 +194,11 @@ schema:
 
   # --- 5. Network exposure -----------------------------------------------
   enable_server: bool
+  lan_password: password
+  lan_trusted_proxies:
+    - str
+  server_public_url: str?
+  openchamber_public_url: str?
   cors_origins:
     - str
 

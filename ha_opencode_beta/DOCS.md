@@ -40,7 +40,7 @@ at `/usr/share/doc/ha-opencode/NOTICE` and in this repository's
 - **Compact Home Assistant context**: New `get_home_context` MCP tool gives agents focused area/domain/entity context with area and device metadata instead of broad state dumps.
 - **Native LLM provider development guide**: New `get_ha_llm_development_guide` MCP tool helps custom integration authors build `<integration>/llm.py` tool providers aligned with Home Assistant's upstream architecture.
 - **Serial device access**: Selected host UART/serial devices can be mapped into the add-on for USB flashing and adapter inspection workflows. Full Supervisor `uart` and `udev` manifest flags remain disabled by default because they are static permissions, not runtime user options.
-- **LAN and PPQ compatibility**: Authenticated V2 LAN/OpenChamber LAN is pending. PPQ now registers native private models when enabled with a key; select a private model explicitly. Actual upstream encryption/private-inference acceptance remains pending.
+- **LAN and PPQ compatibility**: LAN frontends require a trusted HTTPS reverse proxy and separate LAN password. PPQ registers native private models when enabled with a key; select a private model explicitly. Actual upstream encryption/private-inference acceptance remains pending.
 - **Web terminal clipboard fixes**: Copying inside OpenCode now reaches the browser clipboard, plain `Ctrl+V` paste works, and macOS users can use `Option+drag` to select text while full-screen terminal apps capture the mouse.
 - **Touch scrolling**: One-finger vertical drag gestures inside the terminal now scroll full-screen apps such as OpenCode on phones and tablets.
 - **Certified OpenCode runtime**: The app ships one pinned V2 build. Runtime upgrades arrive through app images. See [OpenCode Updates](#opencode-updates).
@@ -366,10 +366,24 @@ and ARM/HAOS qualification remain pending.
 
 ### Connecting a provider with browser sign-in
 
-Use `/connect` in the terminal. Where offered, choose a headless/device-code
-method: a provider's `localhost` browser callback otherwise points at the browsing
-computer rather than this container. Real provider/OAuth compatibility remains
-part of V2 qualification.
+Starting with `3.0.0b22`, OpenChamber's **Usage** panel reads the same active V2
+credential database as the managed backend, rather than retained V1 sign-ins.
+OpenCode owns OAuth refresh. If Usage reports expired authorization after an idle
+period, send a chat message and refresh Usage; reconnect OpenAI if chat also fails.
+This warning concerns provider quota access, not saved conversation history.
+
+New OpenChamber chats remember the last-used available model in that browser.
+This takes precedence over the new-chat model defaults; those defaults are used
+when no remembered model is available. The configured agent still applies, and
+existing sessions keep their own selections.
+
+In OpenChamber, select **ChatGPT Pro/Plus (browser)** to sign in with OpenAI.
+The sign-in link opens a handoff page: continue to OpenAI, then, if the browser
+cannot open the `localhost` callback, copy its full URL from the address bar
+into the handoff page and select **Complete sign-in**. Return to OpenChamber;
+it will finish connecting automatically. You can also use `/connect` in the
+terminal and choose **ChatGPT Pro/Plus (headless)** for a device-code flow.
+Other providers may have different callback requirements.
 
 The first V2 activation migrates sessions but does not copy legacy V1 provider
 credentials because the formats are incompatible. Authenticate each provider
@@ -464,15 +478,50 @@ The add-on discovers a running Zigbee2MQTT add-on automatically, so **Zigbee2MQT
 
 ## LAN Server Mode (Beta)
 
-Authenticated LAN access to the managed V2 server is pending. The saved LAN and
-CORS options do not currently start a listener on `4096`. Use Home Assistant
-Ingress for the terminal, or `opencode api` from an app root shell for local API
-requests. The managed server stays on authenticated loopback port `4100`.
+Enable `enable_server` to serve an authenticated frontend on `4096`. It attaches
+to the existing managed backend on loopback `4100`; it does not start a second
+OpenCode instance. This is shared administrator access with the same sessions and
+permissions as Ingress, not separate users or a read-only account.
+
+| Option | Required setting |
+| --- | --- |
+| `lan_password` | A separate 16–256 character password, entered privately in app options |
+| `lan_trusted_proxies` | Exact IP addresses of the nearest reverse proxy as seen by the app |
+| `server_public_url` | Public HTTPS origin, for example `https://code.example.com` |
+| `cors_origins` | Additional exact HTTPS browser origins, if needed; no wildcard |
+
+Map `4096/tcp` for your reverse proxy. The proxy must terminate HTTPS, preserve
+the public `Host`, overwrite `X-Forwarded-Proto` with `https`, and overwrite
+`X-Forwarded-For` with the single connecting client's IP. It must not append an
+untrusted incoming forwarding chain. If it sends `X-Forwarded-Host`, that must
+match the public host too. Allow WebSocket upgrades and unbuffered SSE responses.
+Restrict the mapped port to the proxy; forwarding headers alone do not authenticate
+an untrusted socket peer. Direct HTTP/browser access to the mapped port is refused.
+
+Use HTTP Basic authentication with username `opencode` and your **LAN password**
+in compatible remote V2 clients. Keep the password in the client's private
+credential settings, not a URL or command argument. The app's internal backend
+credential is never distributed. Browser preflight does not authorize API calls;
+every actual API request still needs authentication.
+
+Save options and **restart the app** to activate or rotate LAN credentials. Invalid
+enabled-LAN settings fail managed activation with an option-specific error. If
+upgrading with an old enabled LAN option, configure these required settings or
+disable LAN before starting. Leaving both LAN options disabled requires no LAN
+configuration.
 
 ## OpenChamber LAN Web UI (Beta)
 
-Authenticated OpenChamber LAN access is under development. Its saved option
-does not currently start a listener on `4097`.
+Set `interface_mode: openchamber`, enable `enable_openchamber_lan`, and configure
+`openchamber_public_url` plus the shared LAN password/proxy settings above. Point
+your HTTPS proxy at mapped `4097/tcp`. Sign in using OpenChamber's native password
+screen; enabling this mode also requires that login through HA Ingress.
+
+Native UI sessions and paired-client tokens are scoped to one app activation.
+Every app restart, including a password change, invalidates them and closes
+existing streams; sign in or pair again. Conversation history, UI settings and
+provider credentials remain persistent. The editor LSP bridge and HA inbound-MCP
+Ingress routes are not exposed on the LAN frontends.
 
 ## PPQ Private TEE Models (Beta)
 
@@ -496,11 +545,24 @@ Controlled V2 tests verify routing to the local proxy endpoint. Startup does not
 certify proxy readiness, upstream availability, encryption or private inference;
 those require real PPQ acceptance before stable promotion.
 
+## Zigbee diagnostics in V2
+
+Use the full-profile `zigporter_run` MCP tool for commands such as `check` and
+`inspect "Device Name" --json`. It supplies credentials inside the sidecar;
+the agent shell does not inherit Home Assistant credentials. The packaged CLI
+uses explicit service environment settings, skips interactive first-run setup,
+and ignores project/global `.env` files. No credential file needs to be created.
+
+`check` is migration preflight: missing Zigbee2MQTT configuration on a ZHA-only
+installation is an incomplete migration prerequisite, not evidence that HA/ZHA
+is broken. Z2M reachability checks do not prove authentication and never receive
+the Supervisor token. The MCP tool retains its execution deadline and cancellation.
+
 ## Custom Providers and Configuration (Beta)
 
 The **Custom OpenCode configuration** option accepts a JSON object, not JSONC or
 V1 provider syntax. Supported root fields are `$schema`, `model`, `default_agent`,
-`providers`, boolean `formatter`, `compaction`, `media` and `tool_output`.
+`providers`, boolean `formatter`, `compaction`, `media`, `tool_output` and `websearch`.
 Nested settings are checked against the pinned native V2 schema. Unsupported
 fields and invalid values stop V2 activation for that boot, preserving the saved
 options for correction. Managed permissions, agents, plugins, snapshots, LSP,
@@ -541,6 +603,32 @@ reserved. Other variables retain separate shell/service handling and generate
 a warning; cloud credential chains and general environment parity remain under
 development. Ordinary provider keys are not isolated from backend subprocesses.
 Do not paste keys into chat. Native `/connect` account setup remains available.
+
+### Web search selection
+
+Set a search provider in **Custom OpenCode configuration** and configure its key
+privately in **Environment variables**, then restart the app:
+
+```json
+{
+  "websearch": { "provider": "tavily" }
+}
+```
+
+| Provider | Configuration ID | Environment variable |
+| --- | --- | --- |
+| Exa | `exa` | `EXA_API_KEY` |
+| Firecrawl | `firecrawl` | `FIRECRAWL_API_KEY` |
+| Parallel | `parallel` | `PARALLEL_API_KEY` |
+| Tavily | `tavily` | `TAVILY_API_KEY` |
+
+Native `/connect` sign-in is also supported; selecting a provider does not create
+credentials or confirm its availability. Use `"random"` to select from available
+providers, or `"websearch": false` to remove the search tool. Omitting the setting
+retains native provider selection. This changes search selection only; managed
+permissions and the read-only agent's restrictions still apply. Provider-specific
+URLs or keys inside `websearch` are not supported. A successful web fetch is not
+evidence that search authentication, cancellation or upstream service access works.
 
 ## Startup Hooks (Beta)
 
