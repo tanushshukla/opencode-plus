@@ -166,6 +166,10 @@ jobs:
         run: |
           bash scripts/apply-plus.sh
           node --test scripts/apply-plus.test.mjs
+          # Fail before publishing if an overlay rule stopped matching the
+          # upstream files it patches, or patches a file not in MANAGED_FILES.
+          bash scripts/test-upstream-sync.sh
+          node --test ha_opencode/test/image-service.test.js ha_opencode/test/runtime-contract.test.js
           git add -A
 
           version="$(sed -n 's/^version: *"\{0,1\}\([0-9][0-9.]*\)"\{0,1\}.*/\1/p' ha_opencode/config.yaml | head -1)"
