@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin";
+import { resolveExternalServers, validateExternalServers } from "./external-mcp.js";
 
 export const PLUGIN_ID = "homeassistant.mcp";
 export const MCP_SERVER_NAME = "homeassistant";
@@ -86,7 +87,7 @@ function requireTimeouts(value) {
 
 export function parseOptions(value) {
   const input = requireObject(value);
-  const allowed = new Set(["endpoint", "nativeEnabled", "nativeEndpoint", "timeouts"]);
+  const allowed = new Set(["endpoint", "nativeEnabled", "nativeEndpoint", "timeouts", "externalServers"]);
   const unknown = Object.keys(input).filter((key) => !allowed.has(key));
   if (unknown.length > 0) {
     throw new TypeError(`Unknown Home Assistant plugin option: ${unknown.join(", ")}`);
@@ -105,6 +106,7 @@ export function parseOptions(value) {
       "nativeEndpoint",
     ),
     timeouts: requireTimeouts(input.timeouts),
+    ...(input.externalServers === undefined ? {} : { externalServers: validateExternalServers(input.externalServers) }),
   };
 }
 
@@ -183,9 +185,11 @@ async function disposeRegistrations(registrations) {
   if (errors.length > 1) throw new AggregateError(errors, "Failed to dispose Home Assistant plugin registrations");
 }
 
-export function createSetup({ readSecret = readCallerSecret } = {}) {
+export function createSetup({ readSecret = readCallerSecret, resolveExternal = resolveExternalServers } = {}) {
   return async function setup(ctx) {
-    const options = parseOptions(ctx.options);
+    const input = requireObject(ctx.options);
+    const { externalServers, ...managedOptions } = input;
+    const options = parseOptions(managedOptions);
     const callerSecret = requireCallerSecret(await readSecret());
     const server = createServerConfig(options, callerSecret);
     const nativeServer = options.nativeEnabled
@@ -195,6 +199,17 @@ export function createSetup({ readSecret = readCallerSecret } = {}) {
       draft.set(MCP_SERVER_NAME, server);
       if (nativeServer) draft.set(NATIVE_MCP_SERVER_NAME, nativeServer);
     })];
+
+    if (externalServers !== undefined) {
+      try {
+        const resolved = await resolveExternal(externalServers);
+        registrations.push(await ctx.mcp.transform((draft) => {
+          for (const [name, externalServer] of Object.entries(resolved)) draft.set(name, externalServer);
+        }));
+      } catch {
+        console.error("External MCP servers were not registered; check the add-on configuration, secret files, and local executables");
+      }
+    }
 
     return async () => {
       await disposeRegistrations(registrations);

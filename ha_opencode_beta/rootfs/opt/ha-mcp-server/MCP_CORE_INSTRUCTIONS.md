@@ -7,6 +7,7 @@ Use the `homeassistant` MCP server for live Home Assistant information. Its adve
 - For finding entities, use `search_entities` before broad state listings.
 - For focused home understanding, use `get_home_context` before broad `get_states` calls.
 - Use `get_entity_details` for device and area relationships.
+- To assign a device or entity to a room, use `get_areas` and `get_devices`/`get_home_context` for exact IDs, then request approval before `set_device_area` or `set_entity_area` (full profile). An entity area is an explicit override; clearing it makes the entity inherit its device's area.
 - Use `diagnose_entity`, history, and error logs for troubleshooting without changing the installation.
 - Use `get_agent_capabilities` to check the active MCP tool profile and native-MCP routing before discussing agent capabilities.
 

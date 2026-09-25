@@ -105,6 +105,7 @@ import {
 import { createNativeMcpHandler } from "./lib/native-mcp-handler.js";
 import { formatErrorLogResult, readErrorLogWithFallback } from "./lib/ha-error-log.js";
 import { createSupervisorAppsClient } from "./lib/supervisor-apps.js";
+import { setRegistryArea } from "./lib/registry-area.js";
 import { saveHabOutput } from "./lib/hab-output.js";
 import { createCommandOutputContent } from "./lib/command-output.js";
 import {
@@ -1834,7 +1835,7 @@ async function fetchHARepairs() {
  * Run a single HA WebSocket API command (auth, send, close).
  * Used for registry dumps that have no REST equivalent.
  */
-function callHAWebSocketCommand(commandType, timeoutMs = 5000, url = "ws://supervisor/core/websocket") {
+function callHAWebSocketCommand(commandType, timeoutMs = 5000, url = "ws://supervisor/core/websocket", fields = {}) {
   return new Promise((promiseResolve, promiseReject) => {
     const requestSignal = getRequestSignal();
     let settled = false;
@@ -1874,7 +1875,7 @@ function callHAWebSocketCommand(commandType, timeoutMs = 5000, url = "ws://super
         if (msg.type === "auth_required") {
           ws.send(JSON.stringify({ type: "auth", access_token: SUPERVISOR_TOKEN }));
         } else if (msg.type === "auth_ok") {
-          ws.send(JSON.stringify({ id: 1, type: commandType }));
+          ws.send(JSON.stringify({ ...fields, id: 1, type: commandType }));
         } else if (msg.type === "auth_invalid") {
           settle(promiseReject, new Error("WebSocket authentication failed"));
         } else if (msg.type === "result") {
@@ -2737,6 +2738,34 @@ const TOOLS = [
     annotations: {
       readOnly: true,
       idempotent: true,
+    },
+  },
+  {
+    name: "set_device_area",
+    title: "Assign Device to Area",
+    description: "Assign a registered device to an existing Home Assistant area, or clear its explicit area with null. Requires Home Assistant admin access and user approval. Use get_devices and get_areas to find exact IDs; moving a device also changes the effective area of its entities without their own area override.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        device_id: { type: "string", description: "Exact device ID from get_devices" },
+        area_id: { type: ["string", "null"], description: "Exact area ID from get_areas, or null to clear the device area" },
+      },
+      required: ["device_id", "area_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_entity_area",
+    title: "Assign Entity to Area",
+    description: "Set an explicit area override for a registered Home Assistant entity, or clear the override with null (then it inherits its device's area). Requires Home Assistant admin access and user approval. Use get_areas for the exact area ID; confirm the entity ID with search_entities or get_home_context.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entity_id: { type: "string", description: "Exact registered entity ID" },
+        area_id: { type: ["string", "null"], description: "Exact area ID from get_areas, or null to clear the override" },
+      },
+      required: ["entity_id", "area_id"],
+      additionalProperties: false,
     },
   },
   {
@@ -4710,6 +4739,20 @@ async function handleToolCall(request) {
         })));
         return makeCompatibleResponse({
           content: [createTextContent(result, { audience: ["assistant"], priority: 0.6 })],
+        });
+      }
+
+      case "set_device_area":
+      case "set_entity_area": {
+        const kind = name === "set_device_area" ? "device" : "entity";
+        const result = await setRegistryArea(
+          { kind, id: args?.[`${kind}_id`], areaId: args?.area_id },
+          (type, fields = {}) => callHAWebSocketCommand(type, 5000, undefined, fields),
+          (type) => registryCache.delete(type),
+        );
+        sendLog("notice", "ha-registry", { action: name, changed: result.changed });
+        return makeCompatibleResponse({
+          content: [createTextContent(JSON.stringify(result), { audience: ["assistant"], priority: 0.8 })],
         });
       }
 

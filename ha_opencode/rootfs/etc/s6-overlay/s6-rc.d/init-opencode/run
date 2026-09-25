@@ -562,7 +562,7 @@ if [ "${V2_ROOTS_READY}" = "true" ] && [ "${V2_RUNTIME_BINARY_READY}" = "true" ]
         --runtime-user opencode-v2 \
         --target-version "${V2_CERTIFIED_VERSION}"; then
         V2_STATE_READY=true
-        bashio::log.info "OpenCode V2 copy-on-write state generation is ready"
+        bashio::log.info "OpenCode V2 copy-on-write state generation is ready; supervised services start automatically without an app restart"
         if jq -e '(.source.provider_auth_count // 0) > 0' /data/v2/migration.json >/dev/null 2>&1; then
             bashio::log.warning "This V2 generation contains provider credentials copied by an earlier beta. Reconnect any provider that returns HTTP 401 from the V2 terminal."
         fi
@@ -615,6 +615,7 @@ if [ "${V2_STATE_READY}" = "true" ] && opencode_v2_select_generation; then
         && chmod 644 "${V2_RUNTIME_ROOT}/config/opencode/AGENTS.md"; then
         V2_CONFIG_TEMP=$(mktemp "${V2_RUNTIME_ROOT}/.managed.XXXXXX")
         V2_PROVIDER_ENV_TEMP=$(mktemp "${V2_RUNTIME_ROOT}/.provider-env.XXXXXX")
+        V2_EXTERNAL_MCP_TEMP=$(mktemp "${V2_RUNTIME_ROOT}/.external-mcp.XXXXXX")
         V2_PASSWORD_TEMP=$(mktemp "${V2_RUNTIME_ROOT}/.password.XXXXXX")
         if [ "${V2_PLUGIN_ENABLED}" = "true" ]; then
             V2_SIDECAR_SECRET_TEMP=$(mktemp "${V2_RUNTIME_ROOT}/.sidecar.XXXXXX")
@@ -622,6 +623,7 @@ if [ "${V2_STATE_READY}" = "true" ] && opencode_v2_select_generation; then
         if node /opt/opencode-v2-homeassistant/managed-config.js \
                 --options-file /data/options.json \
                 --environment-output "${V2_PROVIDER_ENV_TEMP}" \
+                --external-mcp-output "${V2_EXTERNAL_MCP_TEMP}" \
                 --restrict-sensitive-files "${V2_RESTRICT_BOOL}" \
                 --plugin-enabled "${V2_PLUGIN_ENABLED}" \
                 --native-mcp-enabled "${V2_NATIVE_MCP_ENABLED}" \
@@ -633,7 +635,7 @@ if [ "${V2_STATE_READY}" = "true" ] && opencode_v2_select_generation; then
                 --lsp-enabled "${LSP_ENABLED}" \
                 --user-hooks "${USER_HOOKS_ENABLED}" > "${V2_CONFIG_TEMP}" \
             && node /opt/opencode-v2-homeassistant/lan-config.js --write /data/options.json "${V2_RUNTIME_ROOT}/lan.json" \
-            && chmod 600 "${V2_CONFIG_TEMP}" "${V2_PROVIDER_ENV_TEMP}" \
+            && chmod 600 "${V2_CONFIG_TEMP}" "${V2_PROVIDER_ENV_TEMP}" "${V2_EXTERNAL_MCP_TEMP}" \
             && { od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "${V2_PASSWORD_TEMP}"; } \
             && test "$(wc -c < "${V2_PASSWORD_TEMP}")" -eq 64 \
             && chmod 600 "${V2_PASSWORD_TEMP}" \
@@ -643,6 +645,7 @@ if [ "${V2_STATE_READY}" = "true" ] && opencode_v2_select_generation; then
                     && chmod 600 "${V2_SIDECAR_SECRET_TEMP}"; }; } \
             && mv -f "${V2_CONFIG_TEMP}" "${V2_RUNTIME_ROOT}/managed.json" \
             && mv -f "${V2_PROVIDER_ENV_TEMP}" "${V2_RUNTIME_ROOT}/provider-env" \
+            && mv -f "${V2_EXTERNAL_MCP_TEMP}" "${V2_RUNTIME_ROOT}/external-mcp-enabled" \
             && mv -f "${V2_PASSWORD_TEMP}" "${V2_RUNTIME_ROOT}/server-password" \
             && { [ "${V2_PLUGIN_ENABLED}" != "true" ] \
                 || { mv -f "${V2_SIDECAR_SECRET_TEMP}" "${V2_RUNTIME_ROOT}/sidecar-secret" \
@@ -679,7 +682,7 @@ if [ "${V2_STATE_READY}" = "true" ] && opencode_v2_select_generation; then
                 bashio::log.info "OpenCode V2 native Home Assistant MCP bridge is ready behind the credential-isolated sidecar"
             fi
         else
-            rm -f -- "${V2_CONFIG_TEMP}" "${V2_PROVIDER_ENV_TEMP}" "${V2_PASSWORD_TEMP}" "${V2_SIDECAR_SECRET_TEMP}" "${V2_SIDECAR_ENV_TEMP}"
+            rm -f -- "${V2_CONFIG_TEMP}" "${V2_PROVIDER_ENV_TEMP}" "${V2_EXTERNAL_MCP_TEMP}" "${V2_PASSWORD_TEMP}" "${V2_SIDECAR_SECRET_TEMP}" "${V2_SIDECAR_ENV_TEMP}"
             bashio::log.warning "OpenCode V2 managed configuration could not be secured; its server is disabled for this boot"
         fi
     else

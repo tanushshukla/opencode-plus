@@ -142,6 +142,10 @@ configuration:
     name: "Custom OpenCode configuration"
     description: "Native V2 JSON subset: model, default_agent, providers, boolean formatter, compaction, media, tool_output and websearch. Unsupported or invalid fields stop V2 activation until corrected; saved options are preserved. Managed permissions, plugins, runtime and integration policy cannot be overridden. See Documentation for examples and limits."
 
+  external_mcp_config:
+    name: "External MCP configuration"
+    description: "Validated JSON for external remote or local MCP servers and their ordered tool permissions. Protected headers use secret_file descriptors; local environment secrets use file references. Local executables must live directly in /data/.config/opencode/bin. See Documentation for the schema and examples."
+
   user_hooks_enabled:
     name: "Startup hooks (beta)"
     description: "Runs your own .sh scripts from the 'startup.d' folder in this add-on's directory, once every time the add-on starts — the supported way to add a bridge, a small service or an extra tool without editing files inside the container. These scripts are yours: they run as root with access to the Home Assistant API, and the add-on does not check, supervise or restart them. Anything that can write to your configuration folder can therefore run code here, so leave this off unless you want it. Turn it on, restart, then run 'ha-hooks list' in the terminal; the folder is created with a README and a worked example."

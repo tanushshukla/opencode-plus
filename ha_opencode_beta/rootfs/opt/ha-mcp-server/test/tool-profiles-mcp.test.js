@@ -69,6 +69,8 @@ function request(profile, request) {
 // read-only on the Home Assistant side, so a tool slipping back into compact is
 // a real capability leak, not a cosmetic regression.
 const MUTATING_TOOLS = [
+  { name: "set_device_area", arguments: { device_id: "device-1", area_id: "office" } },
+  { name: "set_entity_area", arguments: { entity_id: "light.desk", area_id: "office" } },
   { name: "call_service", arguments: { domain: "light", service: "turn_on" } },
   { name: "fire_event", arguments: { event_type: "test_event" } },
   { name: "write_config_safe", arguments: { file_path: "automations.yaml", content: "[]" } },
@@ -140,6 +142,14 @@ describe("MCP tool-profile enforcement", () => {
     expect(configurationNames).not.toContain("esphome_pairing");
     expect(configurationNames).not.toContain("call_service");
     expect(configurationNames).not.toContain("hab_run");
+    expect(configurationNames).not.toContain("set_device_area");
+    expect(configurationNames).not.toContain("set_entity_area");
+    const full = await request("full", { method: "tools/list", params: {} });
+    for (const name of ["set_device_area", "set_entity_area"]) {
+      const tool = full.tools.find((entry) => entry.name === name);
+      expect(tool).toBeDefined();
+      expect(tool.inputSchema.required).toContain("area_id");
+    }
   }, TIMEOUT_MS + 5000);
 
   it("hides every mutating tool from the compact profile's tool list", async () => {

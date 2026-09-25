@@ -39,6 +39,7 @@ const SENSITIVE_READ_PATTERNS = Object.freeze([
   "*ssl/*",
   "*.key",
   "*.pem",
+  "/data/.config/opencode/mcp-secrets/*",
 ]);
 
 export function buildReadOnlyPermissions(workspace = DEFAULT_WORKSPACE) {
@@ -150,6 +151,15 @@ export function buildManagedConfig({
   };
 }
 
+export function applyExternalMcpConfig(managed, externalMcp) {
+  if (!externalMcp || Object.keys(externalMcp.servers).length === 0) return managed;
+  const plugin = managed.plugins.find(({ package: name }) => name === DEFAULT_PLUGIN_PACKAGE);
+  if (!plugin) throw new TypeError("external_mcp_config requires the Home Assistant MCP integration to be enabled");
+  plugin.options.externalServers = externalMcp.servers;
+  managed.permissions.push(...externalMcp.permissions);
+  return managed;
+}
+
 function parseBoolean(value, name) {
   if (value === "true") return true;
   if (value === "false") return false;
@@ -166,6 +176,8 @@ export function parseArguments(argv) {
       options.optionsFile = value;
     } else if (name === "--environment-output") {
       options.environmentOutput = value;
+    } else if (name === "--external-mcp-output") {
+      options.externalMcpOutput = value;
     } else if (name === "--restrict-sensitive-files") {
       options.restrictSensitiveFiles = parseBoolean(value, name);
     } else if (name === "--plugin-enabled") {
@@ -207,20 +219,29 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   try {
     const args = parseArguments(process.argv.slice(2));
     const managed = buildManagedConfig(args);
+    let externalMcp = { servers: {}, permissions: [] };
     if (args.optionsFile) {
       if (!args.environmentOutput) throw new TypeError("--options-file requires --environment-output");
       let options;
       try { options = JSON.parse(readFileSync(args.optionsFile, "utf8")); }
       catch { throw new TypeError("Cannot read add-on options as JSON; no custom configuration was applied"); }
-      const { config, providerEnvironment } = prepareUserConfig(options, {
+      const prepared = prepareUserConfig(options, {
         warn: (message) => process.stderr.write(`${message}\n`),
       });
       // Only the validated allowlist can override defaults. No policy fields
       // survive validation, so managed plugins/read-only rules remain mandatory.
-      Object.assign(managed, config);
-      writeFileSync(args.environmentOutput, providerEnvironment, { mode: 0o600 });
+      Object.assign(managed, prepared.config);
+      externalMcp = prepared.externalMcp;
+      applyExternalMcpConfig(managed, externalMcp);
+      writeFileSync(args.environmentOutput, prepared.providerEnvironment, { mode: 0o600 });
     } else if (args.environmentOutput) {
       throw new TypeError("--environment-output requires --options-file");
+    }
+    if (args.externalMcpOutput) {
+      const enabledNames = Object.entries(externalMcp.servers)
+        .filter(([, server]) => server.enabled)
+        .map(([name]) => name);
+      writeFileSync(args.externalMcpOutput, `${JSON.stringify(enabledNames)}\n`, { mode: 0o600 });
     }
     process.stdout.write(`${JSON.stringify(managed, null, 2)}\n`);
   } catch (error) {

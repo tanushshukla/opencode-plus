@@ -119,9 +119,10 @@ node /opt/opencode-v2-homeassistant/managed-config.js --restrict-sensitive-files
     --native-mcp-endpoint "http://127.0.0.1:${PROXY_PORT}/native-mcp" \
     --options-file "${RUNTIME_ROOT}/provider-options.json" \
     --environment-output "${RUNTIME_ROOT}/provider-env" \
+    --external-mcp-output "${RUNTIME_ROOT}/external-mcp-enabled" \
     > "${RUNTIME_ROOT}/managed.json"
-chown root:root "${RUNTIME_ROOT}/provider-env"
-chmod 600 "${RUNTIME_ROOT}/provider-env"
+chown root:root "${RUNTIME_ROOT}/provider-env" "${RUNTIME_ROOT}/external-mcp-enabled"
+chmod 600 "${RUNTIME_ROOT}/provider-env" "${RUNTIME_ROOT}/external-mcp-enabled"
 
 NATIVE_PORT="${NATIVE_PORT}" node --input-type=module -e \
     'import { createServer } from "node:http"; const server=createServer((request,response)=>{ if(request.url==="/health"){response.writeHead(200).end("ok");return;} if(request.method!=="POST"||request.url!=="/api/mcp/assist"){response.writeHead(404).end();return;} if(request.headers.authorization!=="Bearer image-fixture-token"){response.writeHead(401).end();return;} let body=""; request.on("data",(chunk)=>{body+=chunk;}); request.on("end",()=>{const message=JSON.parse(body); let result=null; if(message.method==="initialize") result={protocolVersion:message.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:"fixture-native",version:"1"}}; if(message.method==="tools/list") result={tools:[{name:"HassTurnOn",description:"Fixture native tool",inputSchema:{type:"object",additionalProperties:false}}]}; if(result) response.writeHead(200,{"content-type":"application/json"}).end(JSON.stringify({jsonrpc:"2.0",id:message.id,result})); else response.writeHead(202).end();});}); server.listen(Number(process.env.NATIVE_PORT),"127.0.0.1");' \

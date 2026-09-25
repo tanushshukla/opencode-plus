@@ -13,6 +13,22 @@ All notable changes to this project will be documented in this file.
 - **Fix add-on crash loop on port 8099 (OpenCode+ overlay)** — upstream 2.5.5 moved the shared ingress router (`ha-openchamber-ingress`) onto port 8099 for both interface modes, colliding with the OpenCode+ image/voice wrapper that also listened there. The router now crashed repeatedly with `EADDRINUSE` and the wrapper showed "Terminal backend unavailable". The wrapper now runs on loopback port 8101 behind the router, which is patched to use it as its upstream; the wrapper proxies to ttyd (8100) or OpenChamber (3010) and forwards absolute paths so ingress-rewritten asset URLs and the quit control keep working.
 <!-- opencode-plus overlay: end -->
 
+## 3.0.10
+
+- Explain first-boot migration progress and temporary Ingress 502s while large histories convert, so users know when startup finishes without restarting ([#130](https://github.com/magnusoverli/opencode/issues/130)).
+
+## 3.0.9
+
+- Add a bounded `external_mcp_config` option for remote and local MCP servers. Credentials stay in secured root-owned files, local processes run unprivileged with only their declared environment, external tools default to confirmation, and optional ordered tool rules are translated to native V2 permissions. Thanks to [@mabratland](https://github.com/mabratland) for contributing this feature ([#131](https://github.com/magnusoverli/opencode/pull/131)).
+
+## 3.0.8
+
+- Allow guarded V1-to-V2 migration of databases up to 32 GiB and log size-only storage preflight figures to diagnose startup failures ([#130](https://github.com/magnusoverli/opencode/issues/130)).
+
+## 3.0.7
+
+- Restore device and entity room assignments in OpenChamber via approved Home Assistant registry tools in the full profile ([#132](https://github.com/magnusoverli/opencode/issues/132)).
+
 ## 3.0.6
 
 - **Keep complete large hab results for safe dashboard edits ([#128](https://github.com/magnusoverli/opencode/issues/128))** — when `hab_run` exceeds its 20,000-character inline limit, its response now includes `meta.full_output_path` for the entire result in a private, temporary runtime file. The preview stays bounded; agents can transform the complete dashboard locally instead of saving a reconstruction with missing content. Old exports are pruned on subsequent exports or cleared at container restart.

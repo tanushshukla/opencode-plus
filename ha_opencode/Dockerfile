@@ -199,6 +199,7 @@ COPY rootfs/opt/opencode-v2-homeassistant/secure-launcher.c /tmp/opencode-v2-sec
 COPY rootfs/opt/opencode-v2-homeassistant/credential-broker.c /tmp/opencode-v2-credential-broker.c
 COPY rootfs/opt/opencode-v2-homeassistant/container-init.c /tmp/opencode-container-init.c
 COPY rootfs/opt/opencode-v2-homeassistant/tui-launcher.c /tmp/opencode-v2-tui-launcher.c
+COPY rootfs/opt/opencode-v2-homeassistant/external-mcp-launcher.c /tmp/opencode-v2-external-mcp-launcher.c
 RUN apt-get update \
     && apt-get install -y --no-install-recommends g++ make \
     && cc -shared -fPIC -O2 -Wall -Werror \
@@ -211,9 +212,11 @@ RUN apt-get update \
         -o /usr/local/bin/opencode-container-init /tmp/opencode-container-init.c \
     && cc -O2 -Wall -Wextra -Werror \
         -o /usr/local/bin/opencode-v2-tui-launch /tmp/opencode-v2-tui-launcher.c \
+    && cc -O2 -Wall -Wextra -Werror \
+        -o /usr/local/bin/opencode-v2-external-mcp-launch /tmp/opencode-v2-external-mcp-launcher.c \
     && rm -f /tmp/opencode-v2-non-dumpable.c /tmp/opencode-v2-secure-launcher.c \
         /tmp/opencode-v2-credential-broker.c /tmp/opencode-container-init.c \
-        /tmp/opencode-v2-tui-launcher.c \
+        /tmp/opencode-v2-tui-launcher.c /tmp/opencode-v2-external-mcp-launcher.c \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get purge -y --auto-remove g++ make
 

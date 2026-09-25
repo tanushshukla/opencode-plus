@@ -1,7 +1,7 @@
 ---
 name: "OpenCode+"
 description: "AI coding agent for editing Home Assistant configuration with deep MCP integration and LSP support"
-version: "3.0.6.1"
+version: "3.0.10.1"
 slug: "ha_opencode"
 image: "ghcr.io/tanushshukla/ha_opencode"
 url: "https://github.com/tanushshukla/opencode-plus"
@@ -158,6 +158,8 @@ options:
   env_vars: []
   # Validated native V2 JSON subset; invalid/unsupported fields stop activation.
   opencode_config: ""
+  # Bounded external MCP definitions and their ordered tool permissions.
+  external_mcp_config: ""
   # Run your own .sh scripts from <config>/opencode/startup.d at every
   # start. This is the supported way to extend the add-on, and it executes code
   # the add-on did not write, as root. Off by default; last in the list because
@@ -218,6 +220,7 @@ schema:
     - name: str
       value: str
   opencode_config: str?
+  external_mcp_config: str?
   user_hooks_enabled: bool
 
 # Exclude caches from backups

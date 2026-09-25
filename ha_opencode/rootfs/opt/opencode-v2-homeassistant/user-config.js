@@ -3,6 +3,7 @@
 // Unsupported fields fail visibly instead of silently bypassing managed policy.
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
+import { extractLegacyExternalMcpConfig, prepareExternalMcpConfig } from "./external-mcp.js";
 
 // These are locked dependencies of the pinned plugin package already shipped in
 // the image. The actual V2 decoder validates nested fields, not a V1 facsimile.
@@ -123,6 +124,8 @@ export function prepareUserConfig(options = {}, { warn = () => {} } = {}) {
   if (raw.trim()) {
     try { config = JSON.parse(raw); } catch { invalid("invalid JSON; correct the saved option and restart (JSONC is not supported here)"); }
   }
+  object(config, "root");
+  const legacyExternalMcp = extractLegacyExternalMcpConfig(config);
   fields(config, ROOT_FIELDS, "root (managed plugins, permissions, agents, runtime and integration policy cannot be overridden)");
   jsonValues(config, environment);
   try { decodeConfig(config); }
@@ -178,5 +181,5 @@ export function prepareUserConfig(options = {}, { warn = () => {} } = {}) {
 
   const providerEnvironment = Buffer.from([...environment].map(([name, value]) => `${name}=${value}\0`).join(""));
   if (providerEnvironment.length > 65536) invalid("provider environment exceeds 64 KiB");
-  return { config, providerEnvironment };
+  return { config, providerEnvironment, externalMcp: prepareExternalMcpConfig(options, legacyExternalMcp) };
 }

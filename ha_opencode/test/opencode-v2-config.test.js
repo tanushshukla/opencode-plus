@@ -71,13 +71,14 @@ describe("OpenCode V2 managed configuration", () => {
         { action: "shell", resource, effect: "ask" },
       );
     }
-    assert.deepEqual(config.permissions.slice(-6), [
+    assert.deepEqual(config.permissions.slice(-7), [
       "*secrets.yaml",
       "*.storage/*",
       "*.cloud/*",
       "*ssl/*",
       "*.key",
       "*.pem",
+      "/data/.config/opencode/mcp-secrets/*",
     ].map((resource) => ({ action: "read", resource, effect: "deny" })));
   });
 
@@ -148,20 +149,21 @@ describe("OpenCode V2 managed configuration", () => {
     ]) {
       assert.equal(mcpRules.some((rule) => rule.action === action && rule.effect === "allow"), false);
     }
-    assert.deepEqual(agent.permissions.slice(-6), [
+    assert.deepEqual(agent.permissions.slice(-7), [
       "*secrets.yaml",
       "*.storage/*",
       "*.cloud/*",
       "*ssl/*",
       "*.key",
       "*.pem",
+      "/data/.config/opencode/mcp-secrets/*",
     ].map((resource) => ({ action: "read", resource, effect: "deny" })));
 
     const unrestrictedGlobal = buildManagedConfig({ restrictSensitiveFiles: false });
     assert.equal(unrestrictedGlobal.permissions.some((rule) => rule.action === "read" && rule.effect === "deny"), false);
     assert.deepEqual(
-      unrestrictedGlobal.agents[READ_ONLY_AGENT_ID].permissions.slice(-6),
-      agent.permissions.slice(-6),
+      unrestrictedGlobal.agents[READ_ONLY_AGENT_ID].permissions.slice(-7),
+      agent.permissions.slice(-7),
     );
   });
 

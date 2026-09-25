@@ -28,7 +28,7 @@ class PolicyTest(unittest.TestCase):
             "--plugin-enabled", "false", "--native-mcp-enabled", "false",
         ], text=True))
 
-    def exercise(self, plugins, mcp=False, context=True):
+    def exercise(self, plugins, mcp=False, context=True, external=()):
         requests = []
 
         class Client:
@@ -42,15 +42,25 @@ class PolicyTest(unittest.TestCase):
                 return {
                     "/api/info": {"version": VERSION},
                     "/api/plugin": {"data": plugins + ([{"id": "homeassistant.context", "state": {"status": "active"}}] if context else [])},
-                    "/api/mcp": {"data": [{"name": "homeassistant", "status": {"status": "connected"}}] if mcp else []},
+                    "/api/mcp": {"data": ([{"name": "homeassistant", "status": {"status": "connected"}}] if mcp else []) + [
+                        {"name": name, "status": {"status": "connected"}} for name in external
+                    ]},
                     f"/api/agent/{AGENT}": {"data": {"id": AGENT, **self.config["agents"][AGENT]}},
                 }[path]
 
         reporter = POLICY["Reporter"](True)
         with patch.object(POLICY["time"], "sleep"):
-            EXERCISE(Client(), VERSION, mcp, False, reporter)
+            EXERCISE(Client(), VERSION, mcp, False, reporter, external_mcp_names=external)
         self.assertEqual(requests[-1][0], f"/api/agent/{AGENT}")
-        self.assertEqual(reporter.passed, 26 + (2 if mcp else 0))
+        self.assertEqual(reporter.passed, 26 + (2 if mcp else 0) + (1 if external else 0))
+
+    def test_external_mcp_health_is_required(self):
+        self.exercise(
+            [{"id": "homeassistant.runtime-guard", "state": {"status": "active"}},
+             {"id": "homeassistant.mcp", "state": {"status": "active"}}],
+            mcp=True,
+            external=("metrics",),
+        )
 
     def test_nested_active_completes_policy_with_generated_permissions(self):
         self.exercise([{"id": "homeassistant.runtime-guard", "state": {"status": "active"}}])
