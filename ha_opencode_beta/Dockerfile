@@ -75,7 +75,7 @@ ARG BUILD_VERSION
 ARG BUILD_ARCH
 ARG NODE_VERSION
 # Release-channel identity for paths shared through /homeassistant. Stable and
-# beta now contain different OpenCode generations, but still use this one value
+# beta use separate release trees, but still use this one value
 # rather than scattering channel-specific paths through the image.
 ARG ADDON_CHANNEL=stable
 ARG TTYD_VERSION=1.7.7
@@ -291,7 +291,8 @@ RUN --mount=type=bind,source=test/v2-ui-lan-fixture.mjs,target=/tmp/v2-ui-lan-fi
     timeout --signal=TERM --kill-after=5s 45s node /tmp/v2-ui-lan-fixture.mjs
 
 # Make scripts executable and create runtime directories
-RUN chmod +x /usr/local/bin/* \
+RUN python3 -c 'import json; from pathlib import Path; p = Path("/opt/opencode-assist/custom_components/opencode_assist"); m = json.loads((p / "manifest.json").read_text()); assert m["domain"] == "opencode_assist" and m["version"]; assert (p / "config_flow.py").is_file()' \
+    && chmod +x /usr/local/bin/* \
     && chmod +x /opt/openchamber/patch-ingress.js \
     && chmod +x /etc/s6-overlay/s6-rc.d/init-opencode/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode/run \
@@ -306,6 +307,7 @@ RUN chmod +x /usr/local/bin/* \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-openchamber-lan/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-opencode-server/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ha-facing-mcp/run \
+    && chmod +x /etc/s6-overlay/s6-rc.d/ha-assist/run \
     && chmod +x /etc/s6-overlay/s6-rc.d/ppq-private-proxy/run \
     && chmod +x /etc/profile.d/hab-esphome.sh \
     && chmod +x /etc/profile.d/zigporter-z2m.sh \
@@ -348,6 +350,16 @@ RUN --mount=type=bind,source=test/v2-boundary-fixture.sh,target=/tmp/v2-boundary
     timeout --signal=TERM --kill-after=10s 240s \
     bash /tmp/v2-boundary-fixture.sh \
     && timeout --signal=TERM --kill-after=10s 60s node /tmp/v2-zigbee-fixture.mjs
+
+RUN --mount=type=bind,source=test,target=/tmp/ha-assist/test,readonly \
+    ln -s / /tmp/ha-assist/rootfs \
+    && PYTHONDONTWRITEBYTECODE=1 python3 /tmp/ha-assist/test/assist-install.test.py \
+    && timeout --signal=TERM --kill-after=10s 120s node --test \
+        /tmp/ha-assist/test/opencode-v2-assist-adapter.test.js \
+        /tmp/ha-assist/test/opencode-v2-assist-discovery.test.js \
+        /tmp/ha-assist/test/opencode-v2-assist-notification.test.js \
+        /tmp/ha-assist/test/opencode-v2-assist-lifecycle.test.js \
+        /tmp/ha-assist/test/opencode-v2-assist-service.test.js
 
 FROM runtime AS final
 

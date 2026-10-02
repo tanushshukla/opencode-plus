@@ -2,11 +2,104 @@
 
 This is the **beta channel** for the OpenCode add-on. It contains experimental features and fixes that are being validated before inclusion in the stable release.
 
+Beta **3.2.0b5** is based on **stable 3.1.0**, with the same pinned OpenCode `2.0.13`
+runtime. HA 2026.10 integration includes native LLM API discovery, prompt/context
+forwarding and an experimental native Assist/AI data-task adapter. The roadmap
+is tracked in [#45](https://github.com/magnusoverli/opencode/issues/45).
+
+### Experimental native Assist and AI data tasks
+
+The beta can act as a model backend for HA through the optional
+[OpenCode Assist companion](rootfs/opt/opencode-assist/custom_components/opencode_assist/README.md).
+**3.2.0b2:** the Supervisor-only setup below replaces the experimental manual
+pairing used in **3.2.0b1**. Enable `ha_assist_enabled` and
+restart the app to install it into HA's `custom_components` directory. It is off
+by default. **Restart Home Assistant (Core) after installation or an update**;
+restarting only the app cannot load the new code. A Core restart interrupts HA
+and Assist temporarily; it is never triggered automatically.
+
+**3.2.0b3:** setup includes a brief description beneath each
+entity choice and explains that both types can be added, one at a time. After a
+companion install/update, an HA notification provides the version and Core-restart
+instructions. The app retries delivery if HA is unavailable and avoids repeating
+delivered notices on app restarts. HA clears the notification on Core restart;
+dismiss a delayed reminder if you already restarted after its installation time.
+
+Open the app's authenticated Ingress UI and tap **Set up OpenCode Assist** in
+the top bar in either terminal or OpenChamber mode. The link stays within the
+current session, including in the iOS app where the URL is not visible. The
+administrator-only page displays installation/restart guidance and links to HA
+setup. After restarting Core, open **Settings → Devices & services** and configure
+the discovered **OpenCode Assist** app. Choose whether to create a conversation
+agent or AI data task and confirm the connection; HA then opens model/API selection
+automatically. **No URL or key needs copying.** Starting from **Add integration →
+OpenCode Assist** uses the same Supervisor discovery flow.
+
+API choices come from HA's current registry and default to none; select Assist
+explicitly for home control. Select the resulting conversation entity in your
+Assist pipeline, or the AI task entity for `ai_task.generate_data`. To add the
+other type, open **Settings → Devices & services → OpenCode Assist** and use its
+add-entity buttons (also in the existing app connection's overflow menu). Both
+share the current pairing, with independent model settings. Starting **Add
+integration** again attempts a second app connection. This is independent of the
+app's outgoing native-MCP option.
+
+**3.2.0b4:** the integration page now labels these buttons **Add
+conversation agent** and **Add AI data task**; 3.2.0b3 omitted their translation
+keys, leaving the add-entity controls unlabeled. Repeat setup now explains the
+correct path and links to the existing integration. Once paired, the app's setup
+page opens that integration directly instead of starting another connection flow.
+
+**3.2.0b5:** each app connection allows one conversation agent and one AI data
+task. Use **Configure** to edit an existing service. HA 2026.10 keeps the Add buttons
+visible because the same type declaration also enables Configure; trying to add
+an existing type shows guidance and creates no duplicate. Removing a service
+allows it to be added again. Existing duplicates from earlier versions are retained.
+
+The installer atomically installs or updates only an unmodified app-managed
+copy. A manual installation (including the 3.2.0b0 ZIP) or edited files produce a
+clear conflict in the app log and prevent Assist from starting. Back up and move
+the conflicting directory out of `custom_components` before opting into app
+management, then restart the app and Core. Disabling the option withdraws discovery
+and stops the adapter, keeping installed files, pairing and HA configuration.
+Code is bundled in the image, not downloaded at startup; the separate release ZIP
+contains the same companion sources.
+
+If setup reports an installation conflict, back up
+`/homeassistant/custom_components/opencode_assist` (often shown as
+`/config/custom_components/opencode_assist` in other HA tools), then move the
+whole folder outside `custom_components`, for example into a backup folder in
+the HA configuration directory. Remove any old manually paired OpenCode Assist
+entry in HA; those experimental entries are not migrated. Restart the app with
+`ha_assist_enabled` enabled, confirm successful installation in its log, then
+restart Core and configure the discovered app. Review any local code changes
+before reapplying them to an app-managed installation.
+
+Supervisor discovery exchanges an expiring, single-use bootstrap token; HA creates
+and stores its scoped pairing key, while the app persists only its digest. Ordinary
+restarts and rediscovery preserve the pairing. Renew it through HA's reauthentication
+or Reconfigure flow. Removing the integration revokes it when the app is reachable;
+if removed while offline, the next confirmed setup replaces the old key. If no app
+is discovered, check that Assist is enabled and its installation succeeded, restart
+Core after companion updates, and retry when Supervisor and OpenCode are ready.
+
+HA owns the ChatLog, caller context and selected tool execution. The adapter
+streams model text and returns structured calls to HA in isolated disposable
+sessions. Pairing is revocable and separate from inbound read-only MCP access.
+Text and schema-validated JSON tasks are supported; images and attachments are
+not advertised. Internal ports 8768/8769 must remain unpublished. The companion
+README covers provider usage, pairing replacement, removal and data handling.
+
+Contract tests use OpenCode 2.0.13 and actual HA 2026.10.0b0 ChatLog/config-flow
+classes in the official HA image. Full supervised installation and Assist-pipeline
+acceptance remain pending, as does crash-recovery retention qualification. A
+worker/runtime crash can leave a temporary session behind.
+
 **You can install this alongside the stable OpenCode add-on.** Both appear in the sidebar (as "OpenCode" and "OpenCode Beta").
 
 What is separate: each add-on has its own storage, so sessions, credentials, the OpenCode binary and generated context never mix. Decision notes are separate too — beta keeps its at `/config/opencode_beta/decisions.yaml`, and copies your existing notes there once on first start so nothing is lost. Anything you record while testing beta stays out of your stable sessions.
 
-The beta add-on does not write to your configuration directory at all beyond its own notes. In particular it no longer deploys `AGENTS.md` there — that file belongs to the stable add-on, and beta keeps its own copy inside the add-on instead. If you previously ran beta on its own, it removes the copy it left behind, unless you edited it or the stable add-on has since taken it over.
+Beta keeps its generated instructions inside the app and its decision notes in its own directory. It does not deploy the stable app's managed `AGENTS.md`. User-approved configuration edits still affect the shared Home Assistant configuration. If you previously ran beta on its own, it removes the `AGENTS.md` copy it left behind, unless you edited it or the stable add-on has since taken it over.
 
 What is shared, because it is your Home Assistant configuration directory and both add-ons work in it: your actual configuration files, and `AGENTS.local.md` — your own instructions, which neither add-on ever writes and both always load.
 
@@ -23,6 +116,8 @@ at `/usr/share/doc/ha-opencode/NOTICE` and in this repository's
 
 ## Current Beta Changes
 
+- **Stable 3.1.0 baseline**: Includes stable's complete large-HAB-output exports, runtime-aware template validation, 32 GiB history-migration preflight and startup progress messages.
+- **Native LLM API discovery**: `get_agent_capabilities` and `ha://agent/capabilities` query `llm/api/list` on each check, show registered IDs/names, and diagnose the configured selection without changing it. The development guide targets HA `2026.10.0b0`.
 - **OpenChamber session creation fix**: Beta `3.0.0b19` fixes HTTP 400 errors when creating sessions or sending JSON requests through Home Assistant Ingress. A first message and free-model reply have been verified through the actual browser UI and Core Ingress.
 - **Official V2 runtime**: Beta `3.0.0b16` pins the CLI and plugin to OpenCode `2.0.13` using the official `@opencode` packages.
 - **Forward state upgrades**: Earlier V2 data upgrades through a validated private copy, preserving conversations, sign-ins and permissions. Successful upgrades remove obsolete generations; failed conversion preserves its input and reports an error. There is no application runtime fallback or rollback selector.
@@ -340,20 +435,47 @@ The bridge is **off by default**, and Home Assistant does not serve its MCP endp
 1. **Add the Model Context Protocol Server integration in Home Assistant.** Go to **Settings → Devices & Services → Add Integration** and add **Model Context Protocol Server**. Until this exists, Home Assistant registers no `/api/mcp` routes at all and the bridge has nothing to talk to on any version.
 2. **Turn on the bridge in the add-on and restart it.** Set **Enable native Home Assistant MCP bridge** to on in the add-on's Configuration tab, then restart the add-on. The setting is read once at start-up, so it does not take effect until the restart.
 
-To confirm it worked, ask OpenCode to run `get_agent_capabilities`: it reports the detected Home Assistant version, bridge status, which endpoint resolved, and any upstream limitations that still apply. Use `homeassistant_native` only when the bridge status is `enabled_and_reachable`; a reachable endpoint with a disabled bridge is not exposed to OpenCode. In OpenCode you should then see a second MCP server named `homeassistant_native` alongside the built-in `homeassistant` one.
+To check setup, ask OpenCode to run `get_agent_capabilities`: it reports the detected Home Assistant version, bridge status, endpoint initialization probes, and upstream limitations. Use `homeassistant_native` only when the bridge status is `enabled_and_reachable`; a reachable endpoint with a disabled bridge is not exposed to OpenCode. Initialization is not proof of successful tool catalog loading or execution; verify an appropriate read-only native tool next. In OpenCode you should see a second MCP server named `homeassistant_native` alongside `homeassistant`.
+
+### Finding and checking API IDs
+
+On **HA 2026.9+**, the capability tool and `ha://agent/capabilities` resource also
+query the admin-only `llm/api/list` WebSocket command through Supervisor. Each
+check reads the current registry; no credentials or additional access token are
+needed. The query works independently of whether the native bridge is enabled.
+
+| Report field under `home_assistant.native_mcp` | Meaning |
+| --- | --- |
+| `api_discovery.apis` | Registered API IDs and display names in HA registration order; not a list of successfully tested MCP endpoints |
+| `api_discovery.status` | `available`, `unsupported`, `unauthorized`, `timeout`, `unavailable`, or `invalid_response`; an unavailable list does not mean an API is missing |
+| `selected_api.status` | `registered`, `unknown_api`, `not_checked`, or `configured_endpoint` when the saved API ID is empty |
+| `configured_endpoint_status` | Separate initialization probe of the saved endpoint |
+
+For an `unknown_api`, choose a returned ID in **Native Home Assistant MCP API ID**,
+save, and restart the app. Discovery never changes that option automatically.
+On older HA releases or when `llm` is not loaded, discovery reports its limitation
+while the existing endpoint probes remain available. Prefer `assist` for ordinary
+home control; select custom APIs deliberately.
 
 Nothing else is required. You do **not** need to change the API ID, set any environment variable, or supply an access token — the bridge authenticates with the Supervisor token. If you skip step 1, the bridge starts and every request fails with a 404, which `get_agent_capabilities` will report.
 
 Once it is on, the bridge handles Home Assistant versions by itself and needs no further attention when you upgrade — including across the 2026.8 boundary, which it picks up without a restart.
 
-Access model from Home Assistant Core: `/api/mcp` serves **every** LLM API selected in the MCP Server integration — that setting is a multi-select — and needs no admin access. `/api/mcp/<API ID>` narrows to one registered LLM API and requires admin access for every ID except the built-in Assist API.
+Access model from Home Assistant Core: `/api/mcp` serves the selected LLM APIs,
+or every registered API when **Expose all LLM APIs** is enabled. Admin access
+depends on **Require admin**. New HA 2026.10 MCP Server entries default to all
+APIs and admin-only access; existing entries retain their selection and access
+setting. `/api/mcp/<API ID>` serves one registered API and requires admin except
+for `assist`. **The configured endpoint's selection does not restrict keyed
+endpoints.** Adding another API later can broaden the configured endpoint when
+the all-APIs option is enabled.
 
 That admin requirement is not a wall for this add-on. The Supervisor calls Home Assistant Core as its own system user, which Home Assistant creates in the admin group, so **any registered API ID is reachable from here** — which is what makes testing a custom LLM API from your own integration practical. If the bridge reports an unknown API ID, the ID does not exist; it is not an access failure.
 
 The bridge adapts itself to what your Home Assistant actually serves:
 
 - **Endpoint fallback.** If the keyed `/api/mcp/<API ID>` endpoint is not served — which is the case before 2026.8 — the bridge falls back to the configured `/api/mcp` endpoint and logs the reason once. It retries the keyed endpoint periodically, so upgrading Home Assistant to 2026.8 under a running add-on is picked up without a restart. If Home Assistant instead reports that the API ID is unknown, the bridge surfaces that error rather than silently serving a different API. Set `HA_NATIVE_MCP_ENDPOINT_MODE` to `keyed` or `configured` in **Environment variables** to pin one endpoint instead.
-- **Tool schema repair.** Before Home Assistant 2026.8, tools whose parameters use validators such as `cv.string` produced a schema that strict MCP clients cannot compile; calls then failed with `extra keys not allowed @ data['__unparsedToolInput']`, which affected `GetLiveContext` in particular ([home-assistant/core#176762](https://github.com/home-assistant/core/issues/176762), fixed by [#176814](https://github.com/home-assistant/core/pull/176814)). The bridge repairs these schemas as they pass through. Set `HA_NATIVE_MCP_SANITIZE_SCHEMAS` to `0` to see the raw upstream schemas.
+- **Tool schema repair.** Before Home Assistant 2026.8, `GetLiveContext` used a schema that strict MCP clients could not compile, leading to `extra keys not allowed @ data['__unparsedToolInput']` ([home-assistant/core#176762](https://github.com/home-assistant/core/issues/176762), fixed by [#176814](https://github.com/home-assistant/core/pull/176814)). The bridge repairs that legacy unprefixed tool only. Modern and custom schemas, including required parameters and intentionally unconstrained unions, pass through unchanged. Set `HA_NATIVE_MCP_SANITIZE_SCHEMAS` to `0` to disable the repair.
 - **Malformed-message guard.** Every message is validated as JSON-RPC 2.0 before it is forwarded, because malformed POSTs to `/api/mcp` have been reported to crash Home Assistant Core ([home-assistant/core#176734](https://github.com/home-assistant/core/issues/176734)). This one is **not fixed in 2026.8** — the upstream fix is still open — so the guard applies on every version.
 
 Run `get_agent_capabilities` to see what the running instance supports; it reports the detected version, the endpoint status, and any known upstream limitations that apply to it. OpenCode's regular `homeassistant` MCP server remains the supported tool surface either way.
@@ -363,6 +485,40 @@ The two MCP servers are intentionally separate:
 - `homeassistant_native`: Home Assistant's curated native LLM API tools from the configured `/api/mcp/<API ID>` endpoint when available.
 - `homeassistant`: OpenCode's add-on tools for configuration editing, validation, diagnostics, screenshots, updates, ESPHome, Zigbee, add-on development, and documentation lookup.
 
+A native tool rejection must not trigger an automatic retry through the broader
+administrative service tools. Native tool names are discovered from HA (for
+example `homeassistant__GetLiveContext`), rather than assumed from older prompts.
+
+### Native prompts and current context
+
+Once `homeassistant_native` has connected and its catalog has loaded, use HA's
+own prompt or request current context through the native tools:
+
+| Surface | How to use it |
+| --- | --- |
+| Selected API prompt | Select its command in OpenCode; the built-in API appears as `/homeassistant_native:Assist`. Custom/combined API names come from HA and may be normalized by OpenCode. |
+| Current home context | Ask OpenCode to use the native context tool advertised by the selected API. HA 2026.10 Assist uses `homeassistant__GetLiveContext`; OpenCode adds its server prefix. |
+| Assist snapshot resource | Resource-capable clients can read `homeassistant://assist/context-snapshot` when HA lists it. APIs without the live-context tool do not expose it. In the pinned runtime, use the native context tool for model-driven reads. |
+
+The bridge adds concise usage guidance at initialization and preserves HA's
+instructions. It does not fetch or cache prompts, entity lists or snapshots at
+connection time. Prompt retrieval and context reads remain on demand; refresh
+context for a new current-state question. Content already included in a session
+is a snapshot, not a live subscription.
+
+Tool titles, annotations, required arguments and `isError` results are retained.
+Annotations do not grant permissions: the app's read-only agent continues to deny
+native tools. The bridge preserves supplied request metadata but does not invent
+a room/device identity. Native errors should be reported rather than retried
+through broader administrative tools.
+
+Local qualification uses the pinned OpenCode `2.0.13` process, the app's MCP
+registration/forwarding code, and controlled HA/provider fixtures. It covers
+prompt consumption, resource discovery, fresh native context calls, required
+argument validation and read-only policy. Resource reads/cancellation also have
+bridge-level tests. Live HA `2026.10.0b0`, UI resource-reader behavior and native
+image acceptance remain release checks.
+
 ## Runtime And Interface (Beta)
 
 Choose `terminal` or `openchamber` in **Interface**, save and restart, then open
@@ -371,6 +527,13 @@ pinned V2 backend and session history through Home Assistant Ingress.
 The server and terminal start from a root-owned project directory, so `.opencode`
 content in `/homeassistant` is not discovered as project plugins. The root server
 accesses HA files directly; the attached terminal runs as UID `60001`.
+
+For large storage-mode dashboards, `hab_run` keeps its inline preview at 20,000
+characters. If `meta.truncated` is true, `meta.full_output_path` is the complete
+result in a private file under the runtime workspace. Inspect and transform that
+file before a whole-config dashboard write; never reconstruct from the preview.
+Files older than 24 hours are pruned on subsequent exports, and container restart
+clears them.
 
 OpenChamber is built from preview `2.0.0-preview.8`, source commit
 `9fba129ddf968df1e5fb6916b84d3ceb35493198`. Its web package reports upstream
@@ -652,6 +815,50 @@ reserved. Other variables retain separate shell/service handling and generate
 a warning; cloud credential chains and general environment parity remain under
 development. Ordinary provider keys are not isolated from backend subprocesses.
 Do not paste keys into chat. Native `/connect` account setup remains available.
+
+### Lemonade Server (local models)
+
+[Lemonade Server](https://github.com/lemonade-sdk/lemonade) serves an
+OpenAI-compatible API. It does not need a `/connect` sign-in or an API key when
+your server is unauthenticated. In **Custom OpenCode configuration**, use the
+following JSON, replacing the address, model ID, and example model capabilities
+and limits with your server's actual values:
+
+```json
+{
+  "model": "lemonade/your-model-id",
+  "providers": {
+    "lemonade": {
+      "name": "Lemonade Server",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": { "baseURL": "http://192.0.2.10:13305/v1" },
+      "models": {
+        "your-model-id": {
+          "capabilities": { "tools": true, "input": ["text"], "output": ["text"] },
+          "limit": { "context": 65536, "output": 8192 }
+        }
+      }
+    }
+  }
+}
+```
+
+Find the exact installed model ID at Lemonade's `/v1/models`. The add-on runs
+in a container, so `localhost` in `baseURL` means the add-on, **not** the PC
+running Lemonade. Lemonade defaults to `localhost:13305`; make it reachable on
+a trusted private network and use that host's address (with `/v1`). Do not
+expose an unauthenticated server to the public internet. If you enabled
+authentication, add `"apiKey": "{env:LEMONADE_API_KEY}"` under `settings` and
+set `LEMONADE_API_KEY` privately in the add-on's **Environment variables**;
+otherwise omit both. Do not set `tools: true` unless the selected model
+supports tool calls, and use its real context/output limits rather than the
+illustrative values above.
+
+For smaller local models, consider **MCP tool profile → compact** in the add-on
+options, then restart. It reduces the prompt and limits Home Assistant MCP
+tools to read-only diagnostics; choose `configuration` or `full` if you need
+their additional tools. Set an effective model context window of at least 64K
+to avoid truncating tools and instructions (see [MCP Tool Profiles](#mcp-tool-profiles)).
 
 ### External MCP servers
 

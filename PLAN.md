@@ -1,8 +1,442 @@
-# OpenCode V2: stable 3.0 release record
+# OpenCode: implementation and release plan
 
-Updated: 2026-09-23. This is the single shared plan for this work, tracked in Git.
+Updated: 2026-10-02. This is the single shared plan for this work, tracked in Git.
 Only open tasks appear as checkboxes; close them with concrete evidence and keep
 the remaining list current instead of accumulating historical plans.
+
+## One of each Assist entity — beta 3.2.0b5
+
+- User requested one conversation agent and one AI data task per app connection,
+  with only unconfigured types shown as Add actions. The labels themselves were
+  shipped in beta 3.2.0b4 / companion 0.1.0b5 and require a Core restart to load.
+- Pinned HA Core 2026.10.0b0 and frontend 20260930.0 use the same
+  `supported_subentry_types` map for Add buttons, Configure visibility and flow
+  handler lookup. There is no separate add-availability flag. Filtering out a
+  configured type removes its Configure control and breaks reconfiguration;
+  hiding only Add requires upstream HA support. Keep the supported handlers.
+- Companion **0.1.0b6** enforces one of each type at flow entry and again after
+  awaiting model discovery, with a type-specific subentry unique ID as a final
+  registry guard. Duplicate messages point to Configure. Existing unkeyed or
+  duplicate entities are kept, and reconfiguration remains available.
+- All **20 actual HA 2026.10.0b0 contracts** passed: both addition orders,
+  duplicate attempts against earlier unkeyed entries, concurrent form submissions
+  for each type, Configure after both types exist, and removal/re-addition without
+  replacing the pairing. HA's translation loader also confirms both button labels.
+- Release companion: `/tmp/opencode/ha-release-artifacts-3.2.0b5/opencode-assist.zip`,
+  SHA256 `2ecdb5c972389c1525c34724605f30a26662cf585466182884ce5bd8190398c8`.
+- Published [beta 3.2.0b5](https://github.com/magnusoverli/opencode/releases/tag/beta-v3.2.0b5)
+  from `f77cc3c0d173585aba195d20501daa4b0e05b4a2` with the user's approval to
+  commit, push and release. Storefront commit `79fceab` advertises b5.
+- Main CI `36995221591` passed: **299 beta tests / 2 environment skips**, all
+  **20 HA 2026.10 contracts**, and **19 shared MCP discovery tests**. Native
+  amd64/ARM64 checks `36995221542` and pre-tag publication `36995227626` passed;
+  both images were available before tagging. Release workflow `36995714981`
+  and tag-build/publication `36995714895` also passed.
+- The released `image-manifest.txt` matches the final registry index:
+  `sha256:e9815c0b68b8dd6d1471af5e7425a8353a6d7961e57645c98c6c229e31b7169b`.
+  Platform manifests: amd64
+  `sha256:b7f9ca453ea1cec2aa11c045a635bd0780da54e18efc9b93720c55fb0dac4f2d`;
+  ARM64 `sha256:6e866ad2f7de9882eea267fec1fb31eca109afb8a70a0197c86e08ba21820538`.
+- Downloaded release assets under `/tmp/opencode/ha-release-artifacts-3.2.0b5/published/`.
+  The companion ZIP matches the candidate and all **13 source files**. Pulled
+  the final amd64 image by digest: version/architecture labels are correct,
+  OpenCode remains **2.0.13**, and all **13 bundled companion files** match the
+  release ZIP byte-for-byte.
+- Posted the release update to [#45](https://github.com/magnusoverli/opencode/issues/45#issuecomment-5950472153);
+  the broader native-integration roadmap remains open.
+
+## Adding the second Assist entity — beta 3.2.0b4
+
+- User added an AI data task in 3.2.0b3, then re-entered the app-connection flow
+  and received "This app is already configured". The duplicate-connection guard
+  is correct, but the message gave no route to adding a second entity.
+- Found missing HA `config_subentries.<type>.initiate_flow.user` and
+  `.reconfigure` translations, plus `entry_type` labels. Frontend 20260930.0
+  reads those exact keys for the integration-page add buttons, overflow actions
+  and entity-type labels; our former `title` keys did not label those controls.
+- Companion **0.1.0b5** restores the native **Add conversation agent** and
+  **Add AI data task** actions, distinguishes **Add app connection**, and links
+  repeat setup to the existing integration with explicit instructions. Initial
+  setup now says where to add the second type later. Pairing and entity creation
+  continue through HA's existing config-entry/subentry paths.
+- The paired Ingress setup page now links to HA's existing integration page
+  (`my.home-assistant.io/redirect/integration/?domain=opencode_assist`), with
+  instructions for both entity types. First-time setup retains the config-flow
+  link. Returning through the app no longer starts a duplicate connection flow.
+- Verification: all **17 actual HA 2026.10.0b0 contracts** passed, including
+  AI-task-first and conversation-first additions, preservation of the first
+  entity and pairing, and HA's real translation loader resolving the exact
+  integration-page/overflow action keys. All **8 targeted service/Ingress UI
+  tests** passed, including rendered mobile Chromium checks of the paired and
+  unpaired links in both terminal and OpenChamber modes.
+- Release companion **0.1.0b5** at `/tmp/opencode/ha-release-artifacts-3.2.0b4/opencode-assist.zip`;
+  SHA256 `07bfd7a2536808599fc0edb6454cbee4424ca5c06d973eada7f7ba986a6430ea`.
+- Published [beta 3.2.0b4](https://github.com/magnusoverli/opencode/releases/tag/beta-v3.2.0b4)
+  from `f43c24fc323f6ef8c349614677097aa1f2094268` with the user's approval to
+  commit, push and release. Storefront commit `f4efb51` advertises b4.
+- Main CI `36992140448` passed: **299 beta tests / 2 environment skips**, all
+  **17 HA 2026.10 contracts**, and **19 shared MCP discovery tests**. Native
+  amd64/ARM64 checks `36992140461` and pre-tag publication `36992152870` passed;
+  both images were available before tagging. Release workflow `36992666841`
+  and tag-build/publication `36992666780` also passed.
+- The released `image-manifest.txt` matches the final registry index:
+  `sha256:4d4db0ac923e95c76d5d42af6c70571782995c7ed9099a259ed4dcb535bb437e`.
+  Platform manifests: amd64
+  `sha256:e26b1bfd29afbe8ad9211fcf9707820819428fe494aeb04572b01d32909486e9`;
+  ARM64 `sha256:8a8a252339a1ea81c612d7314cb607088febf3b6482c890db5edc3e8617a0ca5`.
+- Downloaded release assets under `/tmp/opencode/ha-release-artifacts-3.2.0b4/published/`.
+  The companion ZIP matches the candidate and all **13 source files**. Pulled
+  the final amd64 image by digest: version/architecture labels are correct,
+  OpenCode remains **2.0.13**, paired setup routing matches the source, and
+  all **13 bundled companion files** match the release ZIP byte-for-byte.
+- Posted the release update to [#45](https://github.com/magnusoverli/opencode/issues/45#issuecomment-5949817038);
+  the broader native-integration roadmap remains open.
+
+## Assist setup explanations and restart notification — beta 3.2.0b3
+
+- User requested short explanations below both onboarding choices, a note that
+  both types can be added one at a time, and an HA restart notification after
+  companion installation/update.
+- Companion **0.1.0b4** uses HA's native config-flow menu with translated secondary
+  descriptions. The radio selector in HA 2026.10 supports labels only; the native
+  menu supports `menu_option_descriptions` beneath each label. Selection opens
+  the existing explicit pairing confirmation, then model/API configuration.
+- The app uses HA's supported `persistent_notification.create` action through
+  Supervisor's Core proxy. A private atomic delivery receipt keyed by companion
+  version and installation time prevents duplicates across ordinary app/worker
+  restarts. A stable notification ID replaces an older update notice. Failures
+  retry with bounded backoff; notification is attempted before backend readiness
+  so an OpenCode startup failure does not hide the installed companion update.
+- Core owns notification clearing on restart; no restart request is sent. A late
+  delivery includes the installation time and asks users who already restarted
+  after it to dismiss the reminder. This avoids claiming that receipt of a
+  notification proves which Python modules Core has loaded.
+- Sources: [HA app communication](https://developers.home-assistant.io/docs/apps/communication/),
+  [persistent notifications](https://www.home-assistant.io/integrations/persistent_notification/),
+  HA frontend [20260930.0 native menu](https://github.com/home-assistant/frontend/blob/20260930.0/src/dialogs/config-flow/step-flow-menu.ts).
+- Verification: beta Node suite passed, including mobile Chromium in both Ingress
+  modes; all **15 actual HA 2026.10.0b0 contracts** passed, including both entity
+  choices, adding the other entity later, renewal and notification replacement/
+  clearing on Core restart. HA's real translation loader returns the menu title,
+  introduction and both secondary descriptions from the shipped English file;
+  pinned frontend 20260930.0 renders these as multiline secondary text.
+- Native amd64 boundary image `opencode-beta:assist-ui-notice-local` passed the
+  existing runtime checks, **10 installer tests** and **23 Assist tests** on
+  Node 24.15.0/OpenCode 2.0.13. Image config digest:
+  `sha256:90d3664ee3f595a5e7255a770ed6590924d210af7be2535d7d4a2911f6f90c6d`.
+- Release companion package: `/tmp/opencode/ha-release-artifacts-3.2.0b3/opencode-assist.zip`, SHA256
+  `ec21e4c162fa2f77bd8eed94a133f08f0d31a358f506b99974163b1517f05633`.
+  Supervised HA/voice-pipeline and physical iOS acceptance remain pending.
+- Published [beta 3.2.0b3](https://github.com/magnusoverli/opencode/releases/tag/beta-v3.2.0b3)
+  from `9a44be4b6225f8a72e208524112accfdefad69d8` with the user's approval to
+  commit, push and release. Storefront commit `e81d6ff` advertises b3.
+- Main CI `36986905721` passed: **299 beta tests / 2 environment skips**, all
+  **15 HA 2026.10 contracts**, and **19 shared MCP discovery tests**. Native
+  amd64/ARM64 checks `36986905684` and pre-tag publication `36986914726` passed;
+  both images were available before tagging. Release workflow `36987528876`
+  and tag-build/publication `36987528885` also passed.
+- The released `image-manifest.txt` matches the final registry index:
+  `sha256:86dd1372dbc29a19dc9d7625bf321ab4a4b84fe4f473955861b84cef62892747`.
+  Platform manifests: amd64
+  `sha256:61ba606138ce1163b22c72f067697c7486e890c5ca10062b3a8d08e41545060a`;
+  ARM64 `sha256:246a1ed613c2dfab7e26e9bc3796b3175a2aadacbfedf17aa044dd503f91ed33`.
+- Downloaded release assets under `/tmp/opencode/ha-release-artifacts-3.2.0b3/published/`.
+  The companion ZIP matches the candidate and all **13 source files**. Pulled
+  the final amd64 image by digest: version/architecture labels are correct,
+  OpenCode remains **2.0.13**, the restart notification module is present, and
+  all **13 bundled companion files** match the release ZIP byte-for-byte.
+- Posted the release update to [#45](https://github.com/magnusoverli/opencode/issues/45#issuecomment-5948782479);
+  the broader native-integration roadmap remains open.
+
+## Assist fixes and Supervisor-native onboarding — beta 3.2.0b2
+
+- Published [beta 3.2.0b2](https://github.com/magnusoverli/opencode/releases/tag/beta-v3.2.0b2)
+  at `f3ac6fb96d3a742738b48334db801926954fdadf`, with the user's approval to commit,
+  push and release. OpenCode remains pinned to **2.0.13**.
+- Main CI `36982830553`, native amd64/ARM64 checks `36982830549`, and pre-tag image
+  publication `36982902946` passed. Images were available before the tag was pushed.
+  Release workflow `36983464750` passed; storefront commit `3357ea6` advertises b2.
+- Tag-build `36983464657` passed both native boundaries, image publication and
+  upload of all image assets. The released `image-manifest.txt` matches the final
+  registry index:
+  `sha256:e4b061e6c39874da2a559ce9dbbcb7971490262b302b5222642b3eb9a61ed2f4`.
+  Platform manifests: amd64
+  `sha256:3b58e834479cd8cf46114600a0bfa1f7bfbdcf16395397dc3fb34bfb848c4247`;
+  ARM64 `sha256:06aa64446da0efc8928418ad045bed451e5b10fe87de1666417eaabc711cbe05`.
+  Pulled the final amd64 image by digest: version/architecture labels are correct,
+  OpenCode is 2.0.13, and all **13 companion files** match the release ZIP byte-for-byte.
+- The downloaded release companion matches all **13 source files** and the final
+  candidate package: version **0.1.0b3**, SHA256
+  `91b954443f3be2b8b08e533c043e1f0ea98a0c8999eb9f675ff2d37b84d94dfd`.
+  Artifacts are under `/tmp/opencode/ha-release-artifacts-3.2.0b2/published/`.
+- Posted the release update to [#45](https://github.com/magnusoverli/opencode/issues/45#issuecomment-5948135598);
+  the broader native-integration roadmap remains open.
+
+- User-reported shutdown failure: the shared state-lock helper returns an unlock
+  function, not an object with `.close()`. The worker now releases it on shutdown
+  and startup failure, locks before opening pairing state, and handles repeated
+  signals with one bounded shutdown. Pairing survives restart.
+- Installer conflicts now publish a bounded reason code for the trusted Ingress
+  fallback page. It explains backup/move/restart recovery while preserving manual
+  and edited copies. The setup page now leads to Supervisor onboarding rather
+  than asking users to open or copy an internal URL.
+- User-reported empty model list: the facade selected `/homeassistant` while its
+  RPC client used the server's managed workspace. Use the server's default
+  location for both model discovery and disposable sessions. Regression tests
+  exercise production defaults instead of injecting the fixture directory.
+- Earlier fixes verification: **275 beta tests passed / 3 environment skips**, including mobile
+  Chromium in both Ingress modes. Native amd64 boundary build passed all existing
+  checks, **10 installer tests** and **9 Assist tests** on Node 24.15.0/OpenCode
+  2.0.13. Local image `opencode-beta:assist-recovery-local`, config digest
+  `sha256:9b46758048d67bba7b91f0e2b89fce24204259c1b6ed2204c5c8b8acc978c50b`.
+  All **6 actual HA 2026.10.0b0 contracts** also passed using the facade's
+  production-default workspace selection, including tool execution and follow-up.
+- Supervised HA/voice-pipeline and physical iOS acceptance remain pending.
+
+### Supervisor-only onboarding
+
+- Declared `opencode_assist` alongside existing `mcp` in the app's `discovery`
+  list. The root worker publishes `POST http://supervisor/discovery` with
+  `service: "opencode_assist"` and bounded connection metadata once ready.
+  Supervisor validates the service against that declaration; it is not limited
+  to a fixed built-in domain list and requires no new elevated API role.
+- Companion **0.1.0b3** implements `async_step_hassio(HassioServiceInfo)` for a
+  native discovered-integration card with the app name/slug and internal URL.
+  HA Core fetches discovery data from Supervisor rather than trusting the push
+  request's configuration. The companion refreshes authenticated Supervisor
+  metadata at confirmation and validates the URL against the app's actual hostname.
+  Discovery is replayed at Core startup; ordinary rediscovery never rotates a key.
+- Replaced URL/key copy-paste with a short-lived, single-use bootstrap exchange
+  over the internal connection after the administrator confirms the HA flow.
+  HA generates the scoped durable key; app storage remains digest-only. Discovery
+  contains only a ten-minute bootstrap, refreshed before expiry and after use.
+  Retrying a lost response with the same key is idempotent; consumed/expired
+  bootstraps cannot rotate or resurrect revoked access. Credentials never appear
+  in browser pages or deep links. Reauthentication/reconfiguration requires HA
+  confirmation, renews the key, and preserves configured entities.
+- Chained initial configuration directly into conversation/model/API selection
+  using `async_on_create_entry` and `next_flow` with
+  `FlowType.CONFIG_SUBENTRIES_FLOW`, supported by Core 2026.10.0b0. Keep API
+  selections explicit with none selected by default. If the backend disappears
+  before the next step, retain the entry without returning a broken next-flow ID.
+- Per user direction, removed the manual pairing UI/forms/endpoints and migration
+  logic. Existing experimental manual entries must be removed and recreated from
+  discovery. Manually installed or edited companion files are still preserved by
+  the installer; file ownership is separate from pairing migration.
+- Kept the Core restart for newly installed/updated custom code and the HA
+  discovery confirmation. Discovery does not hot-reload Python integrations.
+  Supervisor has restart operations, but restarting Core stays an explicit user
+  action. Disable/installation failure withdraws only the saved advertisement,
+  retrying Supervisor outages and preserving app pairing, installed code and HA
+  configuration. Stable `supervisor:<app-slug>` IDs avoid Core's UUID-matched
+  discovery deletion behavior; the actual HA deletion handler is tested.
+- Verification: **282 beta tests passed / 3 environment skips**, including both
+  mobile Chromium Ingress views, **10 installer filesystem tests**, and **14
+  actual HA 2026.10.0b0 contracts**. Tests use Core's config-entry/subentry managers
+  for discovery, confirmation, model/API handoff, retry, rediscovery, renewal and
+  disable behavior, plus real Python-client → worker → pinned OpenCode transport.
+  **19 shared MCP discovery tests** and both channels' option checks also pass.
+- Native amd64 boundary image `opencode-beta:assist-supervisor-local` passed the
+  existing runtime boundaries, **10 installer tests** and **16 Assist tests** with
+  Node 24.15.0/OpenCode 2.0.13. Image config digest:
+  `sha256:387623c3f6a047ba7fd44c1ba86878c870b7e40a4157c7d003d8a20db3f16dab`.
+  All **13 companion files** in this image match the generated ZIP byte-for-byte.
+- Companion ZIP generated at `/tmp/opencode/assist-supervisor/opencode-assist.zip`
+  (version 0.1.0b3, SHA256
+  `c864de099deff46046a66e8c6cb206798fa06dccabcc589b102967adbfd190c7`).
+- Full supervised HA/voice-pipeline and physical iOS acceptance remain pending;
+  native ARM and remote CI qualification passed for this release.
+- Sources checked 2026-10-02: [app communication](https://developers.home-assistant.io/docs/apps/communication/),
+  [Supervisor discovery API](https://developers.home-assistant.io/docs/api/supervisor/endpoints/#discovery),
+  [config flows and chaining](https://developers.home-assistant.io/docs/config_entries_config_flow_handler/),
+  Core [hassio discovery](https://github.com/home-assistant/core/blob/2026.10.0b0/homeassistant/components/hassio/discovery.py),
+  [Wyoming discovery flow](https://github.com/home-assistant/core/blob/2026.10.0b0/homeassistant/components/wyoming/config_flow.py),
+  [config-entry chaining](https://github.com/home-assistant/core/blob/2026.10.0b0/homeassistant/config_entries.py),
+  [loader cache](https://github.com/home-assistant/core/blob/2026.10.0b0/homeassistant/loader.py),
+  Supervisor [discovery API](https://github.com/home-assistant/supervisor/blob/main/supervisor/api/discovery.py)
+  and [persistence/deduplication](https://github.com/home-assistant/supervisor/blob/main/supervisor/discovery/__init__.py).
+
+## Assist setup improvements — beta 3.2.0b1 release
+
+- Published [beta 3.2.0b1](https://github.com/magnusoverli/opencode/releases/tag/beta-v3.2.0b1)
+  at `5c100ffe2b9acbdd962054224496a7ea27342689`, based on b0/main `7b92996`.
+- User authorized consolidating all outstanding work on `main`, committing and
+  pushing it, and publishing **3.2.0b1**. Include the previously retained Lemonade
+  guidance and contributor credits; older native-integration edits are already
+  represented by the published b0 implementation.
+- Consolidation complete: all unique Assist, Lemonade and contributor-credit
+  changes are committed/pushed to `main`. Completed feature/release branches
+  were removed; the original worktree is back on clean `main`. Its pre-consolidation
+  edits are also preserved in local safety stash `079a14863b149c5320f011389c2948532c56a8ca`.
+- Main CI `36974043252` and native amd64/arm64 checks `36974043260` passed.
+  Final images were published by `36974230881` before the tag was pushed.
+  Release workflow `36974663901` succeeded; storefront commit `a0c3414` advertises
+  `3.2.0b1`. The downloaded companion ZIP matches the final source package:
+  SHA256 `e9afde4b96bcf38beae5c42c6e8c92916be288fb49e8dd921c00e5f5c91b6f73`.
+- Tag-build `36974663888` passed both native boundaries and image publications.
+  All three release assets are uploaded; the downloaded `image-manifest.txt`
+  agrees with the registry index:
+  `sha256:e97e4cc1b1ba1dd8c76dd3506036f302dccff47357d3a1eec2bdabd1899a386a`.
+  Platform manifests: amd64
+  `sha256:0e55385fc2180a3852ff9afe2ca7d49226d1c7d38def305dad03284c8b9420da`;
+  arm64 `sha256:19a07eda22b3e9c111af2f252439e4705e00535bc601c700be11da8d9ea60dcf`.
+  Pulled the published amd64 image by digest and verified all 12 companion files
+  match the downloaded release ZIP byte-for-byte (isolated, no HA config mounted).
+- One canonical companion source now lives in
+  `ha_opencode_beta/rootfs/opt/opencode-assist/custom_components/opencode_assist`.
+  The image's normal rootfs copy and the release ZIP both use it; no runtime
+  download is needed. Companion version is `0.1.0b2`.
+- `ha_assist_enabled` stays off by default. When enabled, the supervised worker
+  installs before starting. Atomic directory rename/exchange, per-file ownership
+  hashes and an install lock preserve manual/edited copies and fail closed on
+  conflicts, links or unsupported atomic operations. Disabling leaves files.
+- Installation logs and the pairing UI prompt for a **Home Assistant Core**
+  restart after changes, distinguish it from an app restart, and explain the
+  interruption. No automatic Core restart or automatic pairing is implemented.
+- Both Ingress modes have a touch-sized **Set up OpenCode Assist** link in a
+  reserved top bar. Same-frame navigation preserves the current Ingress session.
+  The existing admin, CSRF, one-time key and revocation boundaries remain.
+- Verification: 269 beta runtime tests passed / 3 environment skips, including
+  8 filesystem installer cases through the Node runner and rendered mobile
+  Chromium navigation/layout checks in both modes. All 6 actual HA 2026.10.0b0
+  companion/transport contracts passed. Stable proxy regression suite: 20 passed
+  when run alone (one IPv6 fixture assertion failed in a concurrent combined-
+  channel run, then passed standalone; stable forwarding is unchanged).
+- Native amd64 boundary image `opencode-beta:assist-setup-local` passed the
+  existing boundary checks, all 8 installer cases and 4 Assist adapter/pairing
+  tests. Image config:
+  `sha256:82e406aab3f903dd4921104d129ba87d0e9ae604f1391e9f5e19be160e44121b`.
+  All 12 companion files inside the image match the generated release ZIP
+  byte-for-byte (ZIP SHA256
+  `b390eca7c2bf30d881f57f2cfd7e5aeb9150b5ae98e45135ed05c56867e1ff79`).
+- WebKit **26.6** / Playwright **1.63.0** also passed iPhone-sized iframe
+  navigation, pairing POST, readable-key layout and return in both proxy modes.
+  Tests use simulated Core metadata and representative app-layout fixtures with
+  the real pairing worker; Chromium checks are wired into PR CI. Screenshots:
+  `/tmp/opencode/assist-setup-artifacts/screenshots/`.
+- [ ] Verify on a physical iOS HA app and supervised HA installation. Browser
+  device emulation is not evidence of the native iOS app or a real HA restart.
+
+## HA native integration beta — issue #45
+
+- User direction: begin implementation for a new beta **based on current stable**.
+  Baseline: stable **3.1.0**, `b9ea92f`, released 2026-09-30. Work in
+  `ha_opencode_beta`; preserve its slug, image, app data and decision-note paths.
+- Published **3.2.0b0**, an experimental first beta with the limits below
+  documented, at `beta-v3.2.0b0` / `d48ac91740b510d9c70e997fd30910865a198c63`.
+  Release workflow `36926495259` passed; storefront commit `24fa5b8` advertises
+  beta `3.2.0b0`. Stable remains `3.1.0`.
+  CLI/plugin stay at stable's **2.0.13**; OpenChamber stays at the stable pin.
+- Source contract: HA **2026.10.0b0** (`64ed916d9c22640b8d41b403fda0f7ed4d4c0bd5`).
+  `llm/api/list` also exists in 2026.9; endpoint probes retain older-HA support.
+- Implemented: stable runtime/test baseline adoption; read-only registered
+  API discovery via Supervisor WebSocket; saved-ID diagnostics in the capability
+  tool/resource; separate registry versus endpoint evidence; updated native-LLM
+  guide and access-model documentation. Discovery does not mutate selection.
+- Native context integration: initialization guidance preserves HA instructions;
+  prompts/resources stay on demand. Schema compatibility repair is limited to
+  legacy unprefixed GetLiveContext, preserving modern/custom schemas and metadata.
+  A real pinned 2.0.13 process exercises production MCP registration and forwarding
+  against synthetic HA/provider fixtures: prompt command consumption, resource
+  discovery, fresh context tool results, required fields, errors and the managed
+  read-only agent's deny policy. The fixture substitutes the FFI credential broker
+  and HTTP listener; existing boundary tests cover those separately.
+  Bridge tests additionally cover snapshot reads/refresh, cancellation, custom
+  prompt names, metadata and older servers without prompt/resource capabilities.
+- Native companion in `custom_components/opencode_assist`:
+  versioned config/reauth/reconfigure and subentry flows, dynamic HA API/model
+  choices (no API selected by default), ConversationEntity, text/validated-JSON
+  AI Task entity, unload/removal cleanup and redacted diagnostics. Enable the
+  beta's `ha_assist_enabled` option and pair via administrator-only Ingress.
+- Pinned 2.0.13 adapter proof: request-specific tool registration and history,
+  streaming, exact arguments (including schema patterns), concurrent conversation
+  isolation, cross-request result rejection, revocation and cancellation. The
+  scoped HTTP facade rejects administrative paths, caller agent overrides and
+  file-bearing history. Pairing credentials are digest-only in a separate store;
+  ordinary cleanup removes the disposable session. A crash can leave an orphaned
+  session; the private agent fails closed without an active request, and no
+  secure-erasure claim is made for underlying databases/provider logs.
+- Official HA **2026.10.0b0** image (`sha256:8d51a81b654093b81d90501d7f8969f634e2f77e6fc5f1cbe52031f8e2726fd9`):
+  **6 contract tests passed**, using actual ChatLog, LLMContext, config-flow and
+  AI Task classes. `node scripts/test-ha-assist-core.mjs` additionally joins the
+  real pinned OpenCode process to HA's HTTP client/ChatLog: original caller
+  context reaches HA tools, follow-up tool history survives, and client shutdown
+  cancels pending HA tool execution. HTTP/provider fixtures replace real devices
+  and model accounts; this is not supervised installation/voice-pipeline evidence.
+  PR CI runs this suite; native image CI includes the adapter/pairing fixtures.
+- Beta release preparation includes a deterministic `opencode-assist.zip` asset;
+  the tag/storefront guard also checks the companion and packaging script. The
+  release workflow publishes it only when a reviewed beta tag is pushed.
+  Published companion **0.1.0b1**: release asset `opencode-assist.zip` matches
+  the deterministic local package byte-for-byte; SHA256
+  `e7ea4aa86aa9450d56484493bd269165ba5bfc6a866ec8d11a247d1d87c2bf1e`.
+- Native **amd64 boundary-test image passed** with Node **24.15.0** and OpenCode
+  **2.0.13**, including all four Assist adapter/pairing tests, the existing native
+  credential/policy/provider/LAN/Zigbee boundary checks and forward migration.
+  Local test image `opencode-beta:ha-assist-local`, image config
+  `sha256:13efe92f3bdb691f35da4cba50c72d1604cf45676301404ad0cafd99f14e767f`.
+  This is a boundary-test build, not a published final image or supervised run.
+  The host initially lacked Buildx; a checksum-verified **0.37.2** client under
+  `/tmp/opencode/ha-build-docker` enabled the successful BuildKit build.
+- Local verification (Linux, Node 24.21.0): MCP suite **642 passed / 4 skipped**;
+  beta runtime contracts **262 passed / 3 skipped** in the clean release worktree;
+  HA-facing discovery/lifecycle
+  **19 passed**. Skips require browser/editor dependencies or root-only fixtures.
+  Channel separation **10 passed**; beta startup-hook security, per-channel option
+  declarations, CLI/plugin pin verification and diff whitespace checks passed.
+  All three generated Python starters parse (syntax only). Controlled HTTP/WS
+  fixtures exercise the shipped MCP process; these host suites are not live HA
+  evidence. The separate amd64 image evidence above uses the exact Node pin.
+
+### Release execution and remaining qualification
+
+- Release preparation uses a separate `release/3.2.0b0` worktree based on current
+  main `611ee9f`, retaining stable 3.1.0 pins and adopting main's reviewed
+  brace-expansion security fix. Pre-existing contributor/Lemonade documentation
+  edits remain in the original worktree.
+- PR **#148** merged after all eight checks passed: PR contracts `36924516475`
+  and native amd64/arm64 boundary checks `36924516462`. Main contracts
+  `36925216725` and native checks `36925216618` also passed.
+- Both native final images and the multi-architecture manifest were published by
+  workflow `36925231523` **before** pushing the release tag. Registry inspection
+  confirmed `linux/amd64` and `linux/arm64`; publication and companion download
+  succeeded, and the only storefront diff from the tag is the beta version.
+- Tag-triggered build/publication `36926495368` passed both native boundaries
+  and final builds. The release includes `container-images.md`,
+  `image-manifest.txt` and `opencode-assist.zip`; the manifest asset agrees with
+  the final registry index
+  `sha256:3935c453b6bd15d5a26c2a3cd2f3c018fd14242f372afdb584968a19f72d5537`.
+  Platform manifests: amd64
+  `sha256:bdfa1034828fa185510a609a303cbc725d5e58106d8434c3d7cc1bac084afb5e`;
+  arm64 `sha256:a794a4ab289c32c982f173b36ec53e18e6e90e04ddaf1b2720795c170c035a13`.
+  Release: https://github.com/magnusoverli/opencode/releases/tag/beta-v3.2.0b0.
+
+The user authorized publication as an experimental beta. The following remain
+explicit qualification/follow-up work, rather than claims of completed support:
+
+- [ ] Qualify both MCP directions on real HA 2026.10: discovery/confirmation,
+  authentication/reauthentication, restart/removal, stable+beta coexistence,
+  selected native catalog and a bounded read-only call. Record exact versions.
+- [ ] Qualify UI resource reading on the shipped clients; the pinned-runtime model
+  path currently uses the native live-context tool, with resource discovery tested.
+  Inspection of the built pinned OpenChamber UI source found only an
+  `mcp.resources.changed` event handler and no resource-read/list invocation; a
+  rendered-resource workflow is not yet established for this client pin.
+- [ ] Expose discovered API choices in setup UI; keep Supervisor options as the
+  supported saved configuration, with no silent change to broader APIs.
+- [ ] Qualify companion installation/config/subentry/reauth/reconfigure/removal
+  flows through a real supervised HA UI, then an Assist pipeline and AI Task
+  service with a compatible account-backed model. Verify caller/exposure behavior
+  for the built-in Assist API; selected custom APIs retain their own boundaries.
+- [ ] Qualify restart/crash recovery, inspect temporary-session retention and
+  decide whether a narrowly marked orphan cleanup is needed. The first
+  experimental release documents this limitation with the adapter disabled by default.
+- [ ] Requalify the separately installed companion against the final HA 2026.10
+  release and test installation from the packaged beta ZIP.
+- [ ] Complete supervised release acceptance before claiming fully qualified
+  native integration support. Native image checks/publication are tracked above.
+
+The sections below preserve the earlier stable-release record.
 
 ## Stable 3.0.0 promotion — 2026-09-23
 

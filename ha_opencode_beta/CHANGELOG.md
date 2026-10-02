@@ -2,6 +2,56 @@
 
 ## [Unreleased]
 
+## 3.2.0b5
+
+- Limit each Assist app connection to one conversation agent and one AI data task, with clear duplicate-setup guidance and existing Configure actions retained.
+- Prevent duplicates from simultaneous setup dialogs and recognize services created by earlier companion versions. Removing a service allows that type to be added again; existing pairings and entities are retained.
+- HA 2026.10 still displays both Add buttons because hiding a supported type would also remove Configure. Selecting an already configured type now explains how to edit the existing service.
+- Bundle companion **0.1.0b6**. Update the app, then restart **Home Assistant Core** to load the change. OpenCode remains pinned to **2.0.13**; native Assist remains experimental ([#45](https://github.com/magnusoverli/opencode/issues/45)).
+
+## 3.2.0b4
+
+- Label HA's Add conversation agent / Add AI data task buttons and open the existing integration from paired setup so both entity types can be added.
+- Replace the unhelpful "already configured" message with a link and instructions for adding entities to the existing connection; distinguish Add app connection from Add conversation agent and Add AI data task.
+- Bundle companion **0.1.0b5**. Update the app, then restart **Home Assistant Core** to load the new labels. Open Settings → Devices & services → OpenCode Assist → **Add conversation agent** to add Assist alongside an existing AI data task. Existing pairings, model settings and entities are retained.
+- Verify adding either entity type first, then the other, with HA 2026.10 and the existing pairing. OpenCode remains pinned to **2.0.13**; native Assist remains experimental ([#45](https://github.com/magnusoverli/opencode/issues/45)).
+
+## 3.2.0b3
+
+- Explain both Assist setup choices beneath their labels and clarify that both can be added, one at a time.
+- Notify Home Assistant when its bundled Assist companion is installed or updated and needs a Core restart, without repeating the reminder on ordinary app restarts.
+- Retry notification delivery while HA is unavailable; subsequent updates replace the same notice, and HA clears it on Core restart. A delayed reminder can be dismissed if Core was already restarted after the displayed installation time.
+- Bundle companion **0.1.0b4**. After updating the app, restart **Home Assistant Core** to load the new setup flow; restarting only the app is not sufficient. Existing Supervisor pairings and configured entities are retained. Requires HA 2026.10 with Supervisor; native Assist remains experimental ([#45](https://github.com/magnusoverli/opencode/issues/45)).
+
+## 3.2.0b2
+
+- Replace manual Assist URL/key pairing with Supervisor discovery, automatic scoped credentials, and HA confirmation followed by model/API selection; recreate old experimental entries through discovery.
+- Use the managed OpenCode workspace for Assist model discovery and requests, fixing an empty model list during integration setup.
+- Fix Assist shutdown/startup-failure lock cleanup and show installation-conflict recovery steps.
+- To enable: turn on `ha_assist_enabled`, restart the app, then restart **Home Assistant Core**. Configure the discovered **OpenCode Assist** app in Settings → Devices & services, confirm, and choose a model and APIs. No APIs are selected by default.
+- Upgrade cleanup: remove old manually paired OpenCode Assist integration entries and recreate them through discovery. Manually installed or edited companion files remain protected; resolve any installation conflict as described in the app log before restarting Core.
+- Bundle companion **0.1.0b3** with expiring bootstrap credentials, HA-confirmed key renewal, and pairing preservation across ordinary restarts and disabling. Requires HA 2026.10 with Supervisor; live supervised HA/voice-pipeline and physical iOS acceptance remain pending ([#45](https://github.com/magnusoverli/opencode/issues/45)).
+
+## 3.2.0b1
+
+- Bundle and atomically install the optional Assist companion when enabled, preserve manual/edited copies, and add mobile-friendly setup links and Home Assistant restart guidance in both Ingress modes.
+- To enable: turn on `ha_assist_enabled`, restart the app, then restart **Home Assistant Core** to load the companion. Tap **Set up OpenCode Assist** and enter the displayed URL/key in HA's Add Integration flow. Core restart and pairing remain manual; the option is off by default.
+- Upgrading from a manual companion installation (including the b0 ZIP): the installer preserves it and reports a conflict. Back up and move that integration directory out of `custom_components` before opting into app-managed installation. Disabling Assist leaves installed files and HA configuration intact.
+- Include the matching companion **0.1.0b2** in the image and release ZIP, with installation, pairing security and mobile Chromium/WebKit coverage. Physical iOS-app and full supervised HA acceptance remain pending; native Assist stays experimental ([#45](https://github.com/magnusoverli/opencode/issues/45)).
+- Document keyless Lemonade Server setup and compact MCP guidance; thanks @soulafein83 for suggesting it in [#147](https://github.com/magnusoverli/opencode/issues/147).
+- Expand the README's community contributor credits.
+
+## 3.2.0b0
+
+- First experimental HA native-integration beta, based on stable 3.1.0 with OpenCode 2.0.13 and the existing OpenChamber pin.
+- Add experimental native Assist conversations and validated AI data tasks through a separately installed HA companion, with scoped pairing, streaming and cancellation ([#45](https://github.com/magnusoverli/opencode/issues/45)).
+- Integrate native HA prompt/context guidance, preserve modern tool schemas and metadata, and qualify the bridge with the pinned OpenCode runtime ([#45](https://github.com/magnusoverli/opencode/issues/45)).
+- Include stable's large-history migration progress, complete HAB exports and runtime-aware template validation.
+- Discover native HA LLM API IDs in capability reports, diagnose the saved selection, and update tool-development guidance for HA 2026.10 ([#45](https://github.com/magnusoverli/opencode/issues/45)).
+- Include the compatible brace-expansion security fixes from main; thanks @anupamme for [#145](https://github.com/magnusoverli/opencode/pull/145).
+- Install the optional companion from the release's `opencode-assist.zip`, restart HA, enable `ha_assist_enabled` in the app, and pair through its administrator-only `/ha-assist/` Ingress page. Requires HA 2026.10; API choices default to none.
+- Experimental limits: text/schema-validated JSON only; no image generation or attachments. Full supervised HA/voice-pipeline acceptance, crash-recovery qualification and setup/resource UI improvements remain tracked in #45. A crash can leave a temporary session behind. Existing app functionality remains available with the new adapter disabled by default.
+
 - Restore supported V1 OpenAI-compatible provider settings through validated, in-memory V2 conversion; thanks @nomonkeynodeal for reporting [#141](https://github.com/magnusoverli/opencode/issues/141).
 - Explain configuration failures directly in the terminal before the resulting sidecar warning; thanks @smw6180, @Sebazzz and @MechaMtt for reporting [#139](https://github.com/magnusoverli/opencode/issues/139).
 - Add opt-in `openchamber_lan_native_apps` for native OpenChamber login through the HTTPS LAN frontend, with authenticated token/CORS/stream coverage; thanks @Rahulsharma0810 for reporting [#135](https://github.com/magnusoverli/opencode/issues/135) and contributing [#136](https://github.com/magnusoverli/opencode/pull/136).
