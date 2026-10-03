@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## 3.2.0b8
+
+- Upgrade the beta to hab 1.7.1, pinned to its exact release source, with correct version reporting and current Home Assistant API fixes.
+- Add structured CLI arguments and compact command/guide discovery; reduce the root schema response from 7.73 MB to 4.77 KB.
+- Preserve complete large results up to the bounded process limit, report CLI failures accurately, and identify timed-out operations as unverified before retrying.
+- Correct command examples and improve guidance for targeted reads, precise dashboard edits and read-back verification.
+- Remove internal planning and handover documents from the repository.
+
+## 3.2.0b7
+
+- Fix LM Studio HTTP 400 errors for parameterless Home Assistant MCP tools by explicitly declaring empty input properties ([#149](https://github.com/magnusoverli/opencode/issues/149)); thanks @AceMoneus for the detailed reproduction.
+
+## 3.2.0b6
+
+- Upgrade the pinned OpenCode CLI/plugin to 2.0.22 and OpenChamber to 2.1.0, preserving app-managed updates, Ingress, HA editor support and existing conversations/sign-ins.
+- Remove the redundant “Set up OpenCode Assist” header from terminal and OpenChamber Ingress; configure Assist through Home Assistant discovery or Add integration.
+- Reuse the add-on icon and logo in the HA integration via companion 0.1.0b7; restart Home Assistant Core after updating to load the new branding.
+- Clarify that Assist voice requires separately configured speech engines, such as Home Assistant Cloud or Whisper and Piper; OpenCode text chat works without them.
 ## 3.2.0b5
 
 - Limit each Assist app connection to one conversation agent and one AI data task, with clear duplicate-setup guidance and existing Configure actions retained.
