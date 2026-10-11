@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+- Make issue and pull-request references clickable in the changelog and release notes.
+
+## 3.2.1b2
+
+- Fix OpenChamber prompt submission through Home Assistant Ingress returning `400: Expected object` when streaming request bodies lose their framing.
+- Add installed-browser coverage for sending a continuation prompt through the shipped UI and SDK.
+
+## 3.2.1b1
+
+- Pass installed Home Assistant qualification for dependency audits, Ingress/screenshots, HTTPS LAN, lifecycle and live/unavailable editor behavior; public-relay phone pairing remains unverified.
+- Make installed browser qualification use Supervisor's actual Home Assistant port.
+- Expand beta dependency qualification to OpenChamber's shipped packages, with explicit security overrides and a reproducible lock.
+- Preserve trusted server Git settings with simple-git 4 while retaining project-variable and command-injection guards.
+- Bound the unfixed upstream braces recursion advisory with a tested vendor patch, retaining the advisory visibly in audit reports.
+- Remove the traced OpenChamber proxy `DEP0060` warning and fail proxy build tests on future deprecations.
+- Qualify authenticated screenshots against current Home Assistant app routes; obsolete `/hassio/...` frontend paths correctly return 404.
+- Verify OpenChamber 2.2.0 preserves existing relay identities through its key-store migration and app restarts.
+- Retain OpenChamber 2.2.0's upstream sub-path URL fix for Home Assistant Ingress and exercise its URL regression tests during image builds.
+- Qualify OpenCode CLI/plugin 2.0.26, OpenChamber 2.2.0 and Puppeteer 25.13.0 for beta 3.2.1b1, with production audit and installed-image acceptance.
+- Fix startup-error tests with temporary storage under /data and explicitly skip compiler fixtures in production while requiring them in CI.
+- Add installed-image audit evidence with exact version/image checks and preserve native MCP/context coverage with OpenCode's host-provided plugin API.
+- Make supervised browser acceptance follow Home Assistant's redirected Ingress origin.
+
+## 3.2.1b0
+
+- Beta qualification release; stable remains 3.2.0. Beta and stable retain separate histories and settings: installing beta does not import or repair stable data.
+- Recover older V2 generations missing their converter home through validated copy-on-write repair; missing persistent state remains an explicit error ([#163](https://github.com/magnusoverli/opencode/issues/163)).
+- Restore migrated history on the first startup after a V2 runtime upgrade, with separate upgrade and placement-preservation checks ([#134](https://github.com/magnusoverli/opencode/issues/134), [#161](https://github.com/magnusoverli/opencode/pull/161)).
+- Fix V1-to-V2 `event_sequence_mismatch` validation for OpenCode 2.0.22's synthetic tool notice, with private structural diagnostics; thanks @loopy321 for [#161](https://github.com/magnusoverli/opencode/pull/161) ([#158](https://github.com/magnusoverli/opencode/issues/158), [#160](https://github.com/magnusoverli/opencode/issues/160), [#168](https://github.com/magnusoverli/opencode/issues/168), [#169](https://github.com/magnusoverli/opencode/issues/169), [#170](https://github.com/magnusoverli/opencode/issues/170)).
+- Add opt-in OpenChamber relay reconnection across restarts when LAN web UI is disabled; LAN-enabled clients retain activation-scoped authentication and must pair again ([#151](https://github.com/magnusoverli/opencode/issues/151)). Thanks @edouardkleinhans.
+
+- Refresh Node to 24.21.0, yq to v4.54.1, Prettier to 3.9.9, tsx to 4.23.15 and compatible dependency floors; retain OpenCode 2.0.22/OpenChamber 2.1.0 and the standalone PPQ peer policy. Thanks @edouardkleinhans ([#144](https://github.com/magnusoverli/opencode/pull/144)).
+- Restore the shared OpenCode update checker for V2-only channels and fail on inconsistent build pins; thanks @edouardkleinhans ([#144](https://github.com/magnusoverli/opencode/pull/144)).
+
 ## 3.2.0b8
 
 - Upgrade the beta to hab 1.7.1, pinned to its exact release source, with correct version reporting and current Home Assistant API fixes.
@@ -68,7 +102,7 @@
 - Discover native HA LLM API IDs in capability reports, diagnose the saved selection, and update tool-development guidance for HA 2026.10 ([#45](https://github.com/magnusoverli/opencode/issues/45)).
 - Include the compatible brace-expansion security fixes from main; thanks @anupamme for [#145](https://github.com/magnusoverli/opencode/pull/145).
 - Install the optional companion from the release's `opencode-assist.zip`, restart HA, enable `ha_assist_enabled` in the app, and pair through its administrator-only `/ha-assist/` Ingress page. Requires HA 2026.10; API choices default to none.
-- Experimental limits: text/schema-validated JSON only; no image generation or attachments. Full supervised HA/voice-pipeline acceptance, crash-recovery qualification and setup/resource UI improvements remain tracked in #45. A crash can leave a temporary session behind. Existing app functionality remains available with the new adapter disabled by default.
+- Experimental limits: text/schema-validated JSON only; no image generation or attachments. Full supervised HA/voice-pipeline acceptance, crash-recovery qualification and setup/resource UI improvements remain tracked in [#45](https://github.com/magnusoverli/opencode/issues/45). A crash can leave a temporary session behind. Existing app functionality remains available with the new adapter disabled by default.
 
 - Restore supported V1 OpenAI-compatible provider settings through validated, in-memory V2 conversion; thanks @nomonkeynodeal for reporting [#141](https://github.com/magnusoverli/opencode/issues/141).
 - Explain configuration failures directly in the terminal before the resulting sidecar warning; thanks @smw6180, @Sebazzz and @MechaMtt for reporting [#139](https://github.com/magnusoverli/opencode/issues/139).
@@ -146,14 +180,14 @@
 
 ## 3.0.0b15
 
-- Fixed screenshot authentication and now report login, navigation, or frontend-readiness failures instead of successful dashboard captures (#121).
+- Fixed screenshot authentication and now report login, navigation, or frontend-readiness failures instead of successful dashboard captures ([#121](https://github.com/magnusoverli/opencode/issues/121)).
 - Devcontainer builds now tolerate Windows line endings in build metadata.
 
 ## 3.0.0b14
 
-- **Reliable Home Assistant MCP plugin reactivation (#112)** — fixed intermittent `EAGAIN: resource temporarily unavailable, read` errors that could leave Home Assistant tools unavailable after plugin reloads. The V2 server now retains its MCP credential safely across reloads instead of rereading a one-use file descriptor.
+- **Reliable Home Assistant MCP plugin reactivation ([#112](https://github.com/magnusoverli/opencode/issues/112))** — fixed intermittent `EAGAIN: resource temporarily unavailable, read` errors that could leave Home Assistant tools unavailable after plugin reloads. The V2 server now retains its MCP credential safely across reloads instead of rereading a one-use file descriptor.
 
-- **Clearer automation editing workflow (#115)** — aligned agent guidance around safe YAML writes, approved domain reloads, and read-only load verification. Successful safe writes now give file-specific apply guidance and distinguish saved changes from active configuration; reduced tool profiles explicitly leave reload pending.
+- **Clearer automation editing workflow ([#115](https://github.com/magnusoverli/opencode/issues/115))** — aligned agent guidance around safe YAML writes, approved domain reloads, and read-only load verification. Successful safe writes now give file-specific apply guidance and distinguish saved changes from active configuration; reduced tool profiles explicitly leave reload pending.
 
 ## 3.0.0b13
 
@@ -509,12 +543,12 @@ Thanks to [@tanc](https://github.com/tanc) for raising this in [issue #63](https
 ## 2.3.5b1
 
 - **OpenCode attribution and license notices** - added a clear upstream credit, MIT notice, non-affiliation statement, and in-image notice for the OpenCode software distributed by this add-on.
-- **Hardened file access: sensitive files are read-protected by default (#53)** — a new **Restrict access to sensitive files** option (default on) adds an OpenCode `permission.read` deny rule for `secrets.yaml`, the `.storage/` and `.cloud/` directories, the `ssl/` directory, and `*.key`/`*.pem` files, so their contents cannot be read into the model's context. Everything else stays readable and normal `!secret`-based config editing is unaffected. Set the option to `false` to restore the previous fully-permissive behavior. Note: this guards OpenCode's file-read tool, not shell commands. Thanks @ChristopherBull for the suggestion.
-- **Fixed PPQ Private (TEE) proxy failing to start (#34)** — the `ppq-private-proxy` service resolved its entrypoint with `npm root -g` *after* sourcing `NPM_CONFIG_PREFIX=/data/.npm-global`, so it looked for `ppq-private-mode` in the persistent OpenCode prefix instead of the image's global modules and crashed with `ERR_MODULE_NOT_FOUND`. The lookup is now isolated from that override, and a missing package logs a clear error instead of a raw Node stack trace. The PPQ provider's models also carry explicit `id` fields now so OpenCode addresses them correctly. Thanks to @iBobik for diagnosing and fixing this.
+- **Hardened file access: sensitive files are read-protected by default ([#53](https://github.com/magnusoverli/opencode/issues/53))** — a new **Restrict access to sensitive files** option (default on) adds an OpenCode `permission.read` deny rule for `secrets.yaml`, the `.storage/` and `.cloud/` directories, the `ssl/` directory, and `*.key`/`*.pem` files, so their contents cannot be read into the model's context. Everything else stays readable and normal `!secret`-based config editing is unaffected. Set the option to `false` to restore the previous fully-permissive behavior. Note: this guards OpenCode's file-read tool, not shell commands. Thanks @ChristopherBull for the suggestion.
+- **Fixed PPQ Private (TEE) proxy failing to start ([#34](https://github.com/magnusoverli/opencode/issues/34))** — the `ppq-private-proxy` service resolved its entrypoint with `npm root -g` *after* sourcing `NPM_CONFIG_PREFIX=/data/.npm-global`, so it looked for `ppq-private-mode` in the persistent OpenCode prefix instead of the image's global modules and crashed with `ERR_MODULE_NOT_FOUND`. The lookup is now isolated from that override, and a missing package logs a clear error instead of a raw Node stack trace. The PPQ provider's models also carry explicit `id` fields now so OpenCode addresses them correctly. Thanks to @iBobik for diagnosing and fixing this.
 
 ## 2.3.5b0
 
-- **Fixed the low-memory start-up crash loop (issue #51)** — on 4 GB devices (for example a Home Assistant Green) the boot-time `npm install -g opencode-ai@latest` could exhaust RAM, make Supervisor unresponsive, and leave the add-on in a watchdog crash loop (repeated exit code 137). Two changes remove this. The default **OpenCode update policy** is now `bundled`, so a fresh install runs entirely on the OpenCode shipped in the image with no start-up download. When you opt into `latest`, the ingress terminal now comes up immediately on the bundled (or an existing healthy persistent) binary while the update runs in a detached background process — off the health-check critical path — that is skipped automatically when free memory is below ~1.5 GB, so the npm spike can no longer push a low-memory host into swap-thrash. An interrupted or non-working update is now discarded instead of shadowing the working bundled binary, which also fixes the related `/data/.npm-global/bin/opencode: cannot execute: required file not found` failure.
+- **Fixed the low-memory start-up crash loop ([issue #51](https://github.com/magnusoverli/opencode/issues/51))** — on 4 GB devices (for example a Home Assistant Green) the boot-time `npm install -g opencode-ai@latest` could exhaust RAM, make Supervisor unresponsive, and leave the add-on in a watchdog crash loop (repeated exit code 137). Two changes remove this. The default **OpenCode update policy** is now `bundled`, so a fresh install runs entirely on the OpenCode shipped in the image with no start-up download. When you opt into `latest`, the ingress terminal now comes up immediately on the bundled (or an existing healthy persistent) binary while the update runs in a detached background process — off the health-check critical path — that is skipped automatically when free memory is below ~1.5 GB, so the npm spike can no longer push a low-memory host into swap-thrash. An interrupted or non-working update is now discarded instead of shadowing the working bundled binary, which also fixes the related `/data/.npm-global/bin/opencode: cannot execute: required file not found` failure.
 
 ## 2.3.4b1
 

@@ -6,6 +6,7 @@ restores the original interface. No HA device calls are made. Set the additional
 HA_OPENCHAMBER_MODEL_ACCEPTANCE=1 to send one real free-model prompt through the UI.
 HA_EDITOR_LSP_ACCEPTANCE=unavailable temporarily stops only the supervised LSP
 worker for the rendered unavailable check, then restores it before smoke checks.
+HA_ACCEPTANCE_CHANNEL=stable selects the isolated stable app (default: beta).
 """
 import json
 import os
@@ -15,8 +16,11 @@ import time
 
 if os.environ.get("HA_OPENCHAMBER_ACCEPTANCE") != "1":
     raise SystemExit("Set HA_OPENCHAMBER_ACCEPTANCE=1 in the official devcontainer")
-APP = "app_local_ha_opencode_beta"
-SLUG = "local_ha_opencode_beta"
+CHANNEL = os.environ.get("HA_ACCEPTANCE_CHANNEL", "beta")
+if CHANNEL not in ("stable", "beta"):
+    raise SystemExit("HA_ACCEPTANCE_CHANNEL must be stable or beta")
+SLUG = "local_ha_opencode" + ("_beta" if CHANNEL == "beta" else "")
+APP = "app_" + SLUG
 EDITOR_MODE = os.environ.get("HA_EDITOR_LSP_ACCEPTANCE") or None
 if EDITOR_MODE not in (None, "live", "unavailable"):
     raise SystemExit("HA_EDITOR_LSP_ACCEPTANCE must be live or unavailable")
@@ -36,7 +40,7 @@ def select_interface(mode):
     # Keep Supervisor credentials and saved options within Core's process.
     command("docker", "exec", "homeassistant", "python3", "-c", r'''
 import json, os, sys, urllib.request
-base = "http://supervisor/addons/local_ha_opencode_beta"
+base = "http://supervisor/addons/" + sys.argv[2]
 headers = {"Authorization": "Bearer " + os.environ["SUPERVISOR_TOKEN"], "Content-Type": "application/json"}
 def request(path, data=None):
     req = urllib.request.Request(base + path, headers=headers, data=None if data is None else json.dumps(data).encode())
@@ -47,7 +51,7 @@ def request(path, data=None):
 options = request("/info")["options"]
 options["interface_mode"] = sys.argv[1]
 request("/options", {"options": options})
-''', mode)
+''', mode, SLUG)
     command("ha", "apps", "restart", SLUG, timeout=120)
     for _ in range(80):
         result = subprocess.run(["docker", "exec", APP, "opencode", "status"], capture_output=True, timeout=5)
@@ -66,7 +70,7 @@ def ready():
         result = subprocess.run(["docker", "exec", APP, "curl", "-fsS", "--max-time", "2", "http://127.0.0.1:3010/api/info"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
             try:
-                if json.loads(result.stdout).get("version") == "2.0.22":
+                if json.loads(result.stdout).get("version") == expected_version:
                     return
             except (ValueError, AttributeError):
                 pass
@@ -89,6 +93,7 @@ def set_lsp_running(running):
     raise AssertionError("Supervised LSP worker did not reach the requested acceptance state")
 
 
+expected_version = app("cat", "/usr/local/share/opencode-v2-certified-version").strip()
 original = json.loads(command("ha", "--raw-json", "apps", "info", SLUG))["data"]["options"]["interface_mode"]
 lsp_suspended = False
 try:
@@ -142,9 +147,10 @@ with urllib.request.urlopen(req, timeout=10) as response:
         lsp_suspended = True
         set_lsp_running(False)
     try:
+        core_port = json.loads(command("ha", "--raw-json", "core", "info"))["data"]["port"]
         browser = subprocess.run(["docker", "exec", "-i", APP, "node", "/local_apps/opencode/scripts/devcontainer-openchamber-browser.mjs"],
-                                 input=json.dumps({"entry": entry, "session": session, "livePrompt": os.environ.get("HA_OPENCHAMBER_MODEL_ACCEPTANCE") == "1",
-                                                   "editorLspMode": EDITOR_MODE}),
+                                 input=json.dumps({"entry": entry, "session": session, "corePort": core_port, "livePrompt": os.environ.get("HA_OPENCHAMBER_MODEL_ACCEPTANCE") == "1",
+                                                    "editorLspMode": EDITOR_MODE, "editorLspArtifactDirectory": os.environ.get("HA_EDITOR_LSP_ARTIFACT_DIRECTORY")}),
                                  capture_output=True, text=True, timeout=180)
     except subprocess.TimeoutExpired as error:
         # Keep bounded checkpoints on timeout too; restoration below restarts the
@@ -159,6 +165,7 @@ with urllib.request.urlopen(req, timeout=10) as response:
                 print(line, flush=True)
         locations = re.findall(r"devcontainer-openchamber[\w-]*\.mjs:\d+:\d+", browser.stderr)
         kinds = re.findall(r"^(?:AssertionError|TimeoutError|TypeError|ReferenceError|Error)\b", browser.stderr, re.M)
+        kinds += re.findall(r"net::[A-Z_]+", browser.stderr)
         markers = [word for word in ("Timeout", "Target closed", "Protocol error", "out of memory", "SIGKILL", "SIGABRT", "AssertionError", "Error") if word in browser.stderr]
         print(f"Browser failure: exit={browser.returncode}, stderr_bytes={len(browser.stderr.encode())}, "
               + ", ".join(dict.fromkeys(kinds + locations + markers)), flush=True)
