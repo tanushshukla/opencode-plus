@@ -13,6 +13,23 @@ All notable changes to this project will be documented in this file.
 - **Fix add-on crash loop on port 8099 (OpenCode+ overlay)** — upstream 2.5.5 moved the shared ingress router (`ha-openchamber-ingress`) onto port 8099 for both interface modes, colliding with the OpenCode+ image/voice wrapper that also listened there. The router now crashed repeatedly with `EADDRINUSE` and the wrapper showed "Terminal backend unavailable". The wrapper now runs on loopback port 8101 behind the router, which is patched to use it as its upstream; the wrapper proxies to ttyd (8100) or OpenChamber (3010) and forwards absolute paths so ingress-rewritten asset URLs and the quit control keep working.
 <!-- opencode-plus overlay: end -->
 
+- Recover confirmed missing OpenChamber workspaces on desktop/mobile without moving conversations or recreating missing directories.
+- Promote beta 3.2.2b1 with independent native MCP, verified startup settings migration, persistent TUI preferences and opt-in formatting/plugin controls.
+
+## 3.2.3
+
+- Show an actionable recovery screen when a restored or reopened OpenChamber workspace is confirmed missing; verify an existing workspace, clear stale last-open/URL navigation pointers before opening a new draft, persist selection, and retain historical session directories ([#177](https://github.com/magnusoverli/opencode/issues/177)).
+- Keep transient connection, authentication and permission failures separate from missing-directory recovery. The earlier unexplained `ECONNREFUSED 127.0.0.1:3010` is not claimed fixed.
+
+## 3.2.2
+
+- Promote beta 3.2.2b1; retain pinned OpenCode CLI/plugin **2.0.26**, OpenChamber **2.2.0** and HAB **1.7.2**, stable identity and separate channel storage.
+- Enable native MCP independently on new installs and migrate legacy Assist selections once to HA-configured `/api/mcp`; preserve custom API choices and effective enabled/disabled states with verified startup persistence.
+- Keep bundled, native and external MCP activation independent; Full bundled tools retain HAB access and disabled bundled routes reject stale clients. The app does not enable or reconfigure HA's MCP Server.
+- Persist terminal preferences across restarts/updates; make whole-file YAML formatting opt-in and preserve authenticated ESPHome edit placeholders through redaction.
+- Add default-off third-party plugin loading through upstream V2; plugins are trusted root-level backend code, with documented persistence and disable-to-recover behavior ([#166](https://github.com/magnusoverli/opencode/issues/166)).
+- Show bounded migration recovery diagnostics while preserving unknown files and conversation history; document native scope expansion, explicit Assist opt-back and backup-based rollback.
+- Automated/native-image qualification does not establish installed Supervisor fresh-install, upgrade or rollback acceptance for 3.2.2; those remain unverified.
 - Make issue and pull-request references clickable in the changelog and release notes.
 
 ## 3.2.1

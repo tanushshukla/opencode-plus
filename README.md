@@ -134,7 +134,7 @@ Includes the [Home Assistant Builder CLI](https://github.com/balloob/home-assist
 An opt-in, persistent place for your own scripts to run at add-on startup — everything else in the container is rebuilt from the image on every restart, so this is the supported way to make your own customizations stick.
 
 #### 🧭 **HA Native LLM Ready**
-Home Assistant's native `llm` platform ships in **2026.8**. OpenCode's opt-in native MCP bridge already targets it (with fallback for older versions), while its own MCP tools remain the complete, supported working surface either way.
+Home Assistant's native `llm` platform ships in **2026.8**. OpenCode's native MCP bridge targets it, while bundled tools remain available independently. Stable 3.2.2 and beta enable native tools on new installs and preserve effective enabled/disabled state on upgrades.
 
 </td>
 </tr>
@@ -220,7 +220,9 @@ OpenCode includes a multi-layered validation pipeline designed to prevent AI-wri
 
 Home Assistant is building native `llm` platform support directly into Core: the `llm` integration, per-domain tool platforms, and keyed `/api/mcp/<API ID>` endpoints all ship for the first time in **Home Assistant 2026.8**. OpenCode is tracking this closely and aims to be a premium consumer of the agent capabilities Home Assistant makes available.
 
-OpenCode already ships an opt-in **Native Home Assistant MCP bridge** (beta) that targets these endpoints, falling back to the older configured `/api/mcp` endpoint on earlier Home Assistant versions and retrying periodically — so an already-running add-on picks up a Home Assistant upgrade on its own. Turning it on takes two one-time steps: add the **Model Context Protocol Server** integration in Home Assistant, then enable the bridge and restart the add-on. `get_agent_capabilities` reports whether the bridge is enabled and actually reachable, rather than leaving a stalled bridge to look like a broken configuration.
+HA's MCP Server is **built into Core**, not a separate download or add-on. On **HA 2026.10+**, enable it under **Settings → System → AI → Model Context Protocol** (on older versions, add the **Model Context Protocol Server** integration). Review the app's native toggle and restart. Beta's **Home Assistant native tools** is independent of bundled and external MCP activation; HAB remains available through bundled Full tools. Connection/initialization status is not proof that tools have loaded: verify a suitable read-only native tool.
+
+**Which HA URL does the bridge use?** Stable 3.2.2 and beta use **Your MCP API** (`/api/mcp`) for new installs and migrate legacy Assist selections once, preserving custom APIs and disabled states. **Native tool selection** offers `home_assistant`, `assist`, and `custom`; explicit choices made after migration are retained. `/api/mcp` follows HA's selected APIs and can include later additions when **Expose all LLM APIs** is on. No URL or token needs to be pasted. See [migration and rollback guidance](ha_opencode/DOCS.md#upgrade-policy-assist-to-ha-configured-mcp) before upgrading. **Home Assistant Read-Only** is the separate reverse-sharing connection.
 
 OpenCode's own MCP tools remain the complete, supported working surface regardless of bridge status — this roadmap is about *adding* native capabilities where they fit well, not replacing safe config writing, validation, admin/dev workflows, screenshots, firmware updates, or troubleshooting.
 
