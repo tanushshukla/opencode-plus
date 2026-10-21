@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## 3.2.4b2
+
+- Pin OpenCode CLI/plugin 2.1.2 and OpenChamber 2.5.0; refresh its security lock, private-backend/Git compatibility and all 15 update-notice translations, using upstream's corrected streaming proxy framing.
+- Preserve conversations, credentials and permissions when upgrading the shipped OpenCode 2.0.26 state; retain older guarded migration paths and private-only PPQ pricing/routing coverage.
+- Pass Linux contracts and native amd64/arm64 image checks, including desktop/mobile Ingress prompts, restart retention and missing-workspace recovery.
+- Keep stable at 3.2.3; installed Supervisor upgrade/rollback, public relay pairing and account-backed encrypted inference remain unverified.
+
+## 3.2.4b1
+
+- Fix PPQ model-list/API-key dialog failures caused by incomplete pricing metadata; preserve cache rates and validate models against OpenCode's native schema ([#188](https://github.com/magnusoverli/opencode/issues/188)).
+- Upgrade existing PPQ catalog caches automatically; missing cache rates use normal input pricing as an estimate, while unknown overall pricing stays unknown. No API-key re-entry or manual cache deletion is required.
+- Add real OpenCode 2.0.26 model-list, post-connect refresh and priced-default regression coverage; retain private-only encrypted routing and stable's published 3.2.3 version. Account-backed inference remains unverified.
+
+## 3.2.4b0
+
+- Base this beta on released stable 3.2.3, including desktop/mobile workspace recovery, while retaining separate beta identity and storage; keep OpenCode 2.0.26 and OpenChamber 2.2.0 pinned.
+- Discover current PPQ private models automatically, cache temporary catalog outages and preserve encrypted-only routing; make PPQ models searchable by name ([#188](https://github.com/magnusoverli/opencode/issues/188)).
+- Keep PPQ model discovery working when optional capability metadata is malformed.
+- Preserve retired explicit PPQ defaults as unavailable rather than silently selecting a public provider; existing sessions and saved options are not rewritten.
+- Pass Linux contracts and native amd64/arm64 image checks; leave stable's published version at 3.2.3.
+- Account-backed encrypted PPQ inference and installed Supervisor upgrade acceptance remain unverified; this is a beta for validation, not a stable promotion.
+
 ## 3.2.2b1
 
 - Enable native MCP independently on new installs and migrate legacy Assist selections once to HA-configured `/api/mcp`, preserving custom APIs and disabled states with verified startup persistence.

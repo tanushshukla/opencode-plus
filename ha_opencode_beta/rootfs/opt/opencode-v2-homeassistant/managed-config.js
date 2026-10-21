@@ -8,6 +8,7 @@ export const DEFAULT_PLUGIN_PACKAGE = "file:///opt/opencode-v2-homeassistant/mcp
 export const DEFAULT_RUNTIME_GUARD_PACKAGE = "file:///opt/opencode-v2-homeassistant/runtime-guard-plugin";
 export const DEFAULT_CONTEXT_PACKAGE = "file:///opt/opencode-v2-homeassistant/context-plugin";
 export const DEFAULT_LSP_PACKAGE = "file:///opt/opencode-v2-homeassistant/lsp-plugin";
+export const DEFAULT_PPQ_PACKAGE = "file:///opt/opencode-v2-homeassistant/ppq-plugin";
 export const DEFAULT_MCP_ENDPOINT = "http://127.0.0.1:8765/mcp";
 export const DEFAULT_NATIVE_MCP_ENDPOINT = "http://127.0.0.1:8765/native-mcp";
 export const DEFAULT_WORKSPACE = "/homeassistant";
@@ -33,7 +34,7 @@ const WATCHER_IGNORES = Object.freeze([
   "*.log",
 ]);
 
-// Pinned 2.0.26 Prettier/Biome built-in extensions, minus YAML. A project-local
+// Managed Prettier/Biome extensions, minus YAML. A project-local
 // formatter must not silently undo the add-on's minimal-diff default.
 const NON_YAML_EXTENSIONS = [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts",
   ".html", ".htm", ".css", ".scss", ".sass", ".less", ".vue", ".svelte", ".json", ".jsonc",
@@ -277,6 +278,10 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
       // after all bundled registrations. Upstream owns selector/load semantics.
       const { plugins: customPlugins = [], ...customConfig } = prepared.config;
       Object.assign(managed, customConfig);
+      if (prepared.config.providers?.["ppq-private"]) managed.plugins.push({
+        package: DEFAULT_PPQ_PACKAGE,
+        options: { defaultModel: prepared.config.model?.startsWith("ppq-private/") ? prepared.config.model.slice("ppq-private/".length) : undefined },
+      });
       // Explicit false disables all formatting. Explicit true opts into YAML
       // as well; otherwise the targeted add-on setting controls YAML alone.
       if (prepared.config.formatter === true) {

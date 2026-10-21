@@ -103,6 +103,30 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.doesNotMatch(dockerfile, /@openchamber\/web@/);
   });
 
+  it("freezes the reviewed OpenChamber source, Bun toolchain and security overrides together", () => {
+    const patcher = read(ROOTFS, "opt", "openchamber", "patch-security-dependencies.cjs");
+    const lock = read(ROOTFS, "opt", "openchamber", "security.bun.lock");
+    const overrides = JSON.parse(read(ROOTFS, "opt", "openchamber", "security-overrides.json"));
+    assert.ok(patcher.includes(`pkg.version !== "${dockerfileOpenchamberPin}"`));
+    const bun = /FROM oven\/bun:(\d+\.\d+\.\d+)-slim@sha256:[a-f0-9]{64}/.exec(dockerfile)?.[1];
+    assert.ok(bun);
+    assert.ok(dockerfile.includes(`test "$(bun --version)" = ${bun}`));
+    for (const [name, version] of Object.entries(overrides)) {
+      const value = name.includes("@") ? `{\n      ".": ${JSON.stringify(version)},\n    }` : JSON.stringify(version);
+      assert.ok(lock.includes(`${JSON.stringify(name)}: ${value}`), `missing frozen override ${name}`);
+    }
+    assert.doesNotMatch(dockerfile, /patch-proxy-framing/);
+    assert.match(dockerfile, /node --throw-deprecation --test .*openchamber-request-body\.mjs .*openchamber-managed-backend\.mjs/);
+  });
+
+  it("includes every read-only build fixture in the filtered Docker context", () => {
+    const included = new Set(read(ADDON_DIR, ".dockerignore").split(/\r?\n/).filter((line) => line.startsWith("!test/")).map((line) => line.slice(1)));
+    for (const [, fixture] of dockerfile.matchAll(/source=(test\/[^,\s]+)/g)) {
+      assert.ok(fs.existsSync(path.join(ADDON_DIR, fixture)), `missing fixture ${fixture}`);
+      assert.ok(included.has(fixture), `Docker context excludes ${fixture}`);
+    }
+  });
+
   it("ships no V1 CLI or runtime selector", () => {
     assert.doesNotMatch(dockerfile, /opencode-ai@|ARG OPENCODE_VERSION=/);
     assert.doesNotMatch(buildYaml, /OPENCODE_VERSION:/);
@@ -110,10 +134,10 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.match(dockerfile, /test ! -e \/usr\/local\/lib\/node_modules\/opencode-ai/);
   });
 
-  it("locks the standalone PPQ tree to channel pins without the unused OpenClaw peer", () => {
+  it("locks private-only PPQ encryption dependencies without the stale upstream model whitelist", () => {
     const pkg = JSON.parse(read(ROOTFS, "opt", "ppq-private-runtime", "package.json"));
     const lock = JSON.parse(read(ROOTFS, "opt", "ppq-private-runtime", "package-lock.json"));
-    for (const [dependency, argument] of [["ppq-private-mode", "PPQ_PROXY_VERSION"], ["tsx", "TSX_VERSION"]]) {
+    for (const [dependency, argument] of [["tinfoil", "TINFOIL_VERSION"], ["tsx", "TSX_VERSION"]]) {
       const pin = new RegExp(`^ARG ${argument}=(.+)$`, "m").exec(dockerfile)?.[1]?.trim();
       assert.match(pin, /^\d+\.\d+\.\d+$/);
       assert.equal(pkg.dependencies[dependency], pin);
@@ -122,9 +146,11 @@ describe(`${CHANNEL} runtime pin`, () => {
     }
     assert.deepEqual(lock.packages[""].dependencies, pkg.dependencies);
     assert.ok(!Object.keys(lock.packages).some((name) => /(?:^|\/)node_modules\/openclaw$/.test(name)));
+    assert.equal(pkg.dependencies["ppq-private-mode"], undefined);
     assert.match(dockerfile, /npm ci --omit=dev --legacy-peer-deps/);
     const service = read(ROOTFS, "etc", "s6-overlay", "s6-rc.d", "ppq-private-proxy", "run");
-    assert.match(service, /exec \/usr\/local\/bin\/node \/opt\/ppq-private-runtime\/node_modules\/tsx\/dist\/cli\.mjs/);
+    assert.match(service, /PPQ_PROXY_ENTRYPOINT="\/opt\/ppq-private-runtime\/proxy\.js"/);
+    assert.match(service, /exec \/usr\/local\/bin\/node "\$\{PPQ_PROXY_ENTRYPOINT\}"/);
     assert.doesNotMatch(service, /npm root|exec tsx /);
   });
 
@@ -147,6 +173,8 @@ describe(`${CHANNEL} runtime pin`, () => {
     assert.equal(buildYamlV2Pin, dockerfileV2Pin);
     assert.equal(v2Package.dependencies["@opencode/cli"], dockerfileV2Pin);
     assert.equal(v2Package.dependencies["@opencode/plugin"], dockerfileV2Pin);
+    const migrator = read(ROOTFS, "usr", "local", "bin", "opencode-v2-migrate.py");
+    assert.ok(migrator.includes(`V2_UPGRADE_TARGET = "${dockerfileV2Pin}"`));
   });
 
   it("installs and verifies the V2 runtime from its committed lock", () => {
