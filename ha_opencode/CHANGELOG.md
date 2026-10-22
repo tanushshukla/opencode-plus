@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - **Fix add-on crash loop on port 8099 (OpenCode+ overlay)** — upstream 2.5.5 moved the shared ingress router (`ha-openchamber-ingress`) onto port 8099 for both interface modes, colliding with the OpenCode+ image/voice wrapper that also listened there. The router now crashed repeatedly with `EADDRINUSE` and the wrapper showed "Terminal backend unavailable". The wrapper now runs on loopback port 8101 behind the router, which is patched to use it as its upstream; the wrapper proxies to ttyd (8100) or OpenChamber (3010) and forwards absolute paths so ingress-rewritten asset URLs and the quit control keep working.
 <!-- opencode-plus overlay: end -->
 
+- Refresh README setup, integration and safety guidance, and replace manual contributor lists with an automatically updated GitHub-data image.
 - Fix PPQ model-list/API-key dialog failures caused by incomplete pricing metadata; preserve cache rates and validate models against OpenCode's native schema ([#188](https://github.com/magnusoverli/opencode/issues/188)).
 - Keep PPQ model discovery working when optional capability metadata is malformed.
 - Discover current PPQ private models automatically, cache temporary catalog outages and preserve encrypted-only routing; make PPQ models searchable by name ([#188](https://github.com/magnusoverli/opencode/issues/188)).

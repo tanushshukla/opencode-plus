@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+- Correct the published 3.2.4b5 release notes.
+
+## 3.2.4b5
+
+- Expand decision-note storage to 2 MiB without active/total-note caps; retain the editable v1 YAML format and superseded history without an archive/database migration ([#193](https://github.com/magnusoverli/opencode/issues/193)).
+- Preserve custom metadata and existing replacement links, keep a last-good backup, coordinate app writers and reject observed manual-edit conflicts without overwriting the record.
+- Add exact-ID and file/entity/integration-filtered recall with revision-bound pagination and an 8 KiB response ceiling; allow read-only recall in compact/read-only sessions while keeping note changes excluded.
+- Refresh the 2 KiB digest after approved changes, leave unchanged content untouched and distinguish successful saves from failed context refreshes. Pins give priority, not guaranteed inclusion.
+- Add focused-recall guidance and recovery/rollback documentation; retain existing OpenAI sign-in fixes, OpenCode 2.1.2, OpenChamber 2.5.0 and separate channel storage. Stable remains 3.2.3.
+
+## 3.2.4b4
+
+- Fix OpenAI browser sign-in for dynamic callback ports and first-time client registration, and explain callback-free legacy device-code login directly in OpenChamber.
+- Refresh README setup, integration and safety guidance, and replace manual contributor lists with an automatically updated GitHub-data image.
+
+## 3.2.4b3
+
+- Validate safe-write YAML structures with bounded parser-based checks instead of regex, supporting nested packages, scripts, merges and Home Assistant references ([#184](https://github.com/magnusoverli/opencode/issues/184)).
+- Add a default-off option for trusted remote OpenChamber TTS/STT servers without general environment passthrough ([#185](https://github.com/magnusoverli/opencode/issues/185)).
+- Activate OpenChamber global Markdown agents on the managed backend, verify saves/deletes, and preserve add-on permission safeguards ([#190](https://github.com/magnusoverli/opencode/issues/190)).
+- Retain OpenCode 2.1.2, OpenChamber 2.5.0 and the earlier PPQ fix; pass Linux contracts and native amd64/arm64 image checks while leaving stable at 3.2.3.
+- Installed Supervisor upgrade/rollback, real Wyoming/Piper/Whisper speech and account-backed encrypted PPQ inference remain unverified; feedback from beta testers is welcome.
+
 ## 3.2.4b2
 
 - Pin OpenCode CLI/plugin 2.1.2 and OpenChamber 2.5.0; refresh its security lock, private-backend/Git compatibility and all 15 update-notice translations, using upstream's corrected streaming proxy framing.
