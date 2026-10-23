@@ -13,13 +13,26 @@ All notable changes to this project will be documented in this file.
 - **Fix add-on crash loop on port 8099 (OpenCode+ overlay)** — upstream 2.5.5 moved the shared ingress router (`ha-openchamber-ingress`) onto port 8099 for both interface modes, colliding with the OpenCode+ image/voice wrapper that also listened there. The router now crashed repeatedly with `EADDRINUSE` and the wrapper showed "Terminal backend unavailable". The wrapper now runs on loopback port 8101 behind the router, which is patched to use it as its upstream; the wrapper proxies to ttyd (8100) or OpenChamber (3010) and forwards absolute paths so ingress-rewritten asset URLs and the quit control keep working.
 <!-- opencode-plus overlay: end -->
 
-- Refresh README setup, integration and safety guidance, and replace manual contributor lists with an automatically updated GitHub-data image.
-- Fix PPQ model-list/API-key dialog failures caused by incomplete pricing metadata; preserve cache rates and validate models against OpenCode's native schema ([#188](https://github.com/magnusoverli/opencode/issues/188)).
-- Keep PPQ model discovery working when optional capability metadata is malformed.
-- Discover current PPQ private models automatically, cache temporary catalog outages and preserve encrypted-only routing; make PPQ models searchable by name ([#188](https://github.com/magnusoverli/opencode/issues/188)).
+## 3.3.1
 
-- Recover confirmed missing OpenChamber workspaces on desktop/mobile without moving conversations or recreating missing directories.
-- Promote beta 3.2.2b1 with independent native MCP, verified startup settings migration, persistent TUI preferences and opt-in formatting/plugin controls.
+- Fix startup migration for compacted V1 conversations while preserving summaries, retained context and original history ([#195](https://github.com/magnusoverli/opencode/issues/195)).
+- If 3.3.0 stopped at `message_projection_mismatch`, back up the existing app data and update the same stable app to retry; no database deletion or manual history edits are required. OpenCode 2.1.2 and OpenChamber 2.5.0 remain unchanged.
+
+## 3.3.0
+
+**Before updating:** make a Home Assistant backup of the stable app, its options and configuration. Restore that backup to roll back; do not run an older runtime against upgraded data. Stable and beta keep separate storage.
+
+- Update to OpenCode 2.1.2 and OpenChamber 2.5.0, preserving stable conversations, sign-ins and permissions.
+- Validate safe-write Home Assistant YAML with parser-based checks for nested automations, scripts, packages, anchors and supported tags ([#184](https://github.com/magnusoverli/opencode/issues/184)).
+- Add a default-off option for trusted remote OpenChamber text-to-speech and transcription servers ([#185](https://github.com/magnusoverli/opencode/issues/185)).
+- Restore PPQ private-model discovery, selection and pricing metadata without requiring provider sign-in or manual cache deletion ([#188](https://github.com/magnusoverli/opencode/issues/188)).
+- Activate global Markdown agents saved in OpenChamber on the managed backend, with verified saves/deletes and existing permission safeguards ([#190](https://github.com/magnusoverli/opencode/issues/190)).
+- Expand decision-note storage to 2 MiB without note-count caps; preserve metadata and history with backups, add exact/paginated historical recall, and refresh the small digest after approved changes ([#193](https://github.com/magnusoverli/opencode/issues/193)).
+- Fix OpenAI browser sign-in for dynamic callback ports and first-time registration, and explain callback-free legacy device-code login.
+- Fix the blank OpenChamber Terminal pane through Home Assistant ingress and direct access ([#194](https://github.com/magnusoverli/opencode/issues/194)).
+- Keep recovered workspaces selected after reload; report selection-save failures without clearing conversation navigation or moving historical conversations.
+- Retain the Zigporter 1.4.2 compatibility fix for Zigbee2MQTT inventory and cached device-state discovery.
+- Refresh README setup, integration and safety guidance, and replace manual contributor lists with an automatically updated GitHub-data image.
 
 ## 3.2.3
 

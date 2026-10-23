@@ -31,7 +31,7 @@ const V2_BIN = join(
   "bin",
   "opencode.exe",
 );
-const TARGET_VERSION = "2.0.26";
+const TARGET_VERSION = "2.1.2";
 const PREVIOUS_VERSION = "0.0.0-beta-18684";
 const PREVIOUS_BIN = join(ADDON_ROOT, "rootfs", "opt", "opencode-v2-homeassistant",
   "node_modules", "@opencode-ai", "cli", "bin", "opencode2.exe");
@@ -135,6 +135,14 @@ describe("OpenCode V2 copy-on-write migration", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout.trim(), "ok");
     assert.doesNotMatch(result.stdout + result.stderr, /secret|duplicate text/);
+  });
+
+  it("migrates automatic and manual compactions with or without retained context using the pinned converter", () => {
+    const result = spawnSync(python, [
+      join(ADDON_ROOT, "test", "fixtures", "opencode-v2-compaction.py"), V2_BIN, TARGET_VERSION,
+    ], { encoding: "utf8", timeout: 60_000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), "ok");
   });
 
   it("activates a real pinned conversion with exact message, session, and watermark projections", async () => {
@@ -597,7 +605,8 @@ describe("OpenCode V2 copy-on-write migration", () => {
 
   for (const [version, binary] of [[PREVIOUS_VERSION, PREVIOUS_BIN],
     ["2.0.13", join(ADDON_ROOT, "rootfs/opt/opencode-v2-homeassistant/node_modules/opencode-previous/bin/opencode.exe")],
-    ["2.0.22", join(ADDON_ROOT, "rootfs/opt/opencode-v2-homeassistant/node_modules/opencode-beta-previous/bin/opencode.exe")]]) {
+    ["2.0.22", join(ADDON_ROOT, "rootfs/opt/opencode-v2-homeassistant/node_modules/opencode-beta-previous/bin/opencode.exe")],
+    ["2.0.26", join(ADDON_ROOT, "rootfs/opt/opencode-v2-homeassistant/node_modules/opencode-upgrade-previous/bin/opencode.exe")]]) {
   it(`preserves failed-upgrade input and validated state when upgrading ${version}`, async () => {
     const root = join(sandbox, `upgrade-v2-${version}`);
     const source = join(sandbox, `upgrade-v1-${version}`);
