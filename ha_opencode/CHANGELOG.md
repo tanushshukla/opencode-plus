@@ -13,6 +13,34 @@ All notable changes to this project will be documented in this file.
 - **Fix add-on crash loop on port 8099 (OpenCode+ overlay)** — upstream 2.5.5 moved the shared ingress router (`ha-openchamber-ingress`) onto port 8099 for both interface modes, colliding with the OpenCode+ image/voice wrapper that also listened there. The router now crashed repeatedly with `EADDRINUSE` and the wrapper showed "Terminal backend unavailable". The wrapper now runs on loopback port 8101 behind the router, which is patched to use it as its upstream; the wrapper proxies to ttyd (8100) or OpenChamber (3010) and forwards absolute paths so ingress-rewritten asset URLs and the quit control keep working.
 <!-- opencode-plus overlay: end -->
 
+## 3.3.4
+
+**Before updating:** back up the stable app, its options and Home Assistant configuration. If 3.3.3 stopped at `v2_upgrade_records_changed`, update the same stable app to retry with the preserved data; do not delete databases or migration journals. Restore a pre-upgrade backup to roll back instead of downgrading against upgraded data.
+
+- Fix upgrades stopping at `v2_upgrade_records_changed` when startup cleanup archives a temporarily unavailable project; preserve project placement and archive state while retaining strict history, credential and permission checks.
+- Retain OpenCode 2.1.4, OpenChamber 2.5.2, hab 1.8.0 and the security fixes from withdrawn 3.3.3; beta is not changed or released.
+- Add native project-cleanup regression coverage and a guarded emergency restore for the previous stable image aliases; 3.3.3 remains withdrawn.
+
+## 3.3.3
+
+**WITHDRAWN:** project cleanup during private state conversion could stop startup at `v2_upgrade_records_changed`. Do not install this version; use 3.3.4. The stable listing was temporarily restored to 3.3.1 during investigation. Do not downgrade against upgraded data; rollback requires a pre-upgrade backup.
+
+**Before updating:** back up the stable app, its options and Home Assistant configuration. Restore that backup to roll back; do not run an older runtime against upgraded data.
+
+- Deliver OpenCode 2.1.4, OpenChamber 2.5.2 and hab 1.8.0 with the reviewed Home Assistant patches; 3.3.2 did not publish container images.
+- Fix the native startup fixture's mock context window without relaxing credential, model or disabled-search checks; update the MCP server's Zod dependency to address GHSA-mrhx-c7xc-m3w5.
+- Patch Zod and undici in the private-encryption runtime while retaining its SDK version and encrypted-only request policy.
+
+## 3.3.2
+
+**Publication status:** native validation failed before container images were published; 3.3.3 has also been withdrawn. Use 3.3.4. The original tags are retained unchanged.
+
+**Before updating:** back up the stable app, its options and Home Assistant configuration. Restore that backup to roll back; do not run an older runtime against upgraded data. Beta remains unchanged.
+
+- Update stable to OpenCode 2.1.4 and OpenChamber 2.5.2 with reviewed Home Assistant patches and validated preservation of existing runtime data.
+- Refresh OpenChamber's security dependencies and preserve explicit Git credential configuration isolation during fallback.
+- Upgrade stable to hab 1.8.0 with verified registry metadata edits, short-ID discovery, safer rename guidance and fresh Home Assistant registry context after CLI operations.
+
 ## 3.3.1
 
 - Fix startup migration for compacted V1 conversations while preserving summaries, retained context and original history ([#195](https://github.com/magnusoverli/opencode/issues/195)).
