@@ -36,8 +36,8 @@ for (const newline of ["\n", "\r\n"]) {
     assert.match(result, /detects approval automatically/);
     assert.match(result, /no restart or Terminal switch/);
     assert.match(result, /OpenCode handles credential storage and refresh/);
-    assert.match(result, /await client\.integration\.list\(\);\n      const \{ data \} = await client\.integration\.oauth\.connect/);
-    const withoutWarmup = result.replace(/      \/\/ The pinned server's list handler[\s\S]*?      const \{ data \} = await client.integration.oauth.connect\(\{/, "      const { data } = await sdk().integration.oauth.connect({");
+    assert.match(result, /await client\.plugin\.list\(\);\n      const \{ data \} = await client\.integration\.oauth\.connect/);
+    const withoutWarmup = result.replace(/      \/\/ The pinned server's plugin list[\s\S]*?      const \{ data \} = await client.integration.oauth.connect\(\{/, "      const { data } = await sdk().integration.oauth.connect({");
     assert.equal(withoutWarmup.replace(/      \{integrationId === 'openai'[\s\S]*?      \)\}\n/, ""), original);
     assert.throws(() => patchProviderSignin(root), /Unexpected preview provider sign-in source/);
     assert.equal(fs.readFileSync(target, "utf8"), result);
@@ -69,7 +69,7 @@ test("late OAuth source drift rejects the entire patch before writing guidance",
 
 test("beta builds and exercises the patched provider UI before shipping it", () => {
   const docker = fs.readFileSync(path.join(__dirname, "../Dockerfile"), "utf8");
-  assert.match(docker, /ARG OPENCHAMBER_REVISION=95af6769797693bf049f4e6a801e373b5220447b/);
+  assert.match(docker, /ARG OPENCHAMBER_REVISION=1a151518c95cc5ff3578bab593d2f96862ff3bb8/);
   const patch = docker.indexOf("RUN node /tmp/patch-provider-signin.cjs /opt/openchamber-preview");
   assert.ok(patch > docker.indexOf("git checkout --detach FETCH_HEAD"));
   assert.ok(patch < docker.indexOf("bun run --cwd packages/ui type-check"));

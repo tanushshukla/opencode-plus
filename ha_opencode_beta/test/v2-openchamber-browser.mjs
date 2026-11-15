@@ -146,7 +146,7 @@ try {
   });
   let backend = startBackend();
   const client = OpenCode.make({ baseUrl: 'http://127.0.0.1:4100', headers });
-  await wait(async () => (await client.server.info()).version === '2.2.5', 'backend startup');
+  await wait(async () => (await client.server.info()).version === '2.3.0', 'backend startup');
   const credentials = await client.credential.create({ integrationID: 'fixture', value: { type: 'key', key: 'fixture-persisted-key' } });
   await mkdir(`${root}/ui`);
   // Exercise the existing-installation settings migration as well as a new chat.
@@ -266,7 +266,7 @@ try {
   assert.equal((await client.session.get({ sessionID: id })).id, id, 'Stopping UI must leave backend/history running');
   await stop(backend);
   backend = startBackend();
-  await wait(async () => (await client.server.info()).version === '2.2.5', 'backend restart');
+  await wait(async () => (await client.server.info()).version === '2.3.0', 'backend restart');
   ui = startUi();
   await wait(async () => (await fetch('http://127.0.0.1:3010/health')).ok, 'UI restart');
   assert.equal((await client.session.get({ sessionID: id })).id, id);
@@ -287,9 +287,19 @@ try {
   await rm(`${runtime}/workspace`, { recursive: true });
   await stop(backend);
   backend = startBackend();
-  await wait(async () => (await client.server.info()).version === '2.2.5', 'missing-workspace backend restart');
+  await wait(async () => (await client.server.info()).version === '2.3.0', 'missing-workspace backend restart');
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('[data-testid="workspace-recovery"]', { timeout: 30000 });
+  await page.waitForSelector('[data-testid="workspace-recovery"]', { timeout: 30000 }).catch(async error => {
+    console.error('Workspace recovery diagnostics:', JSON.stringify({
+      workspaceExists: await import('node:fs').then(fs => fs.existsSync(`${runtime}/workspace`)),
+      view: await page.evaluate(() => ({
+        text: document.body.innerText.slice(-6000),
+        lastDirectory: localStorage.getItem('lastDirectory'),
+        lastSession: localStorage.getItem('oc.lastSession.v1'),
+      })),
+    }));
+    throw error;
+  });
   assert.equal(new URL(page.url()).searchParams.get('session'), id, 'Fixture exercises the stale historical URL too');
   // Upstream refreshes the cache's monotonic updatedAt when restoring a session
   // on reload. Snapshot AFTER that restore, not before it; the session/directory
@@ -342,9 +352,27 @@ try {
   assert.equal(afterRecovery.id, id);
   await assert.rejects(access(`${runtime}/workspace`), { code: 'ENOENT' });
   // Reopening the old workspace must offer recovery again, including mobile.
+  const mobileReads = [];
+  page.on('response', async response => {
+    const path = new URL(response.url()).pathname;
+    if (!/session|directory-stat|location/.test(path)) return;
+    const body = await response.json().catch(() => null);
+    mobileReads.push({ path, status: response.status(), id: body?.id,
+      location: body?.location, directory: body?.directory, reason: body?.reason,
+      isDirectory: body?.isDirectory });
+  });
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await page.goto(`${url}?session=${encodeURIComponent(id)}`, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('[data-testid="workspace-recovery"]', { timeout: 30000 });
+  await page.waitForSelector('[data-testid="workspace-recovery"]', { timeout: 30000 }).catch(async error => {
+    console.error('Mobile recovery reads:', JSON.stringify(mobileReads));
+    console.error('Mobile recovery diagnostics:', JSON.stringify(await page.evaluate(() => ({
+      text: document.body.innerText.slice(-6000),
+      lastDirectory: localStorage.getItem('lastDirectory'),
+      lastSession: localStorage.getItem('oc.lastSession.v1'),
+      route: location.search,
+    }))));
+    throw error;
+  });
   await page.$eval('#recovery-directory', (input, directory) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, directory);
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -353,6 +381,8 @@ try {
   await page.waitForSelector('button[data-composer-morph-prompt="true"]', { visible: true, timeout: 30000 });
   await page.tap('button[data-composer-morph-prompt="true"]');
   await page.waitForSelector('[contenteditable="true"]', { visible: true, timeout: 30000 });
+  assert.deepEqual((await client.session.get({ sessionID: id })).location, historical.location,
+    'Mobile recovery preserves the historical session location');
   assert.equal(await page.$('#ha-assist-setup'), null);
   assert.deepEqual(errors, []);
   assert.deepEqual(escaped, []);

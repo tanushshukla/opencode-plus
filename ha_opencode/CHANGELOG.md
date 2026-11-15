@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
 - **Fix add-on crash loop on port 8099 (OpenCode+ overlay)** — upstream 2.5.5 moved the shared ingress router (`ha-openchamber-ingress`) onto port 8099 for both interface modes, colliding with the OpenCode+ image/voice wrapper that also listened there. The router now crashed repeatedly with `EADDRINUSE` and the wrapper showed "Terminal backend unavailable". The wrapper now runs on loopback port 8101 behind the router, which is patched to use it as its upstream; the wrapper proxies to ttyd (8100) or OpenChamber (3010) and forwards absolute paths so ingress-rewritten asset URLs and the quit control keep working.
 <!-- opencode-plus overlay: end -->
 
+- Apply the reviewed glob 14.0.2 / minimatch 11.0.1 dependency fixes already used by beta, addressing the stable runtime's production audit findings.
+- Refresh OpenChamber's qs and follow-redirects fixes to match beta's reviewed dependency pins.
+
 ## 3.3.4
 
 **Before updating:** back up the stable app, its options and Home Assistant configuration. If 3.3.3 stopped at `v2_upgrade_records_changed`, update the same stable app to retry with the preserved data; do not delete databases or migration journals. Restore a pre-upgrade backup to roll back instead of downgrading against upgraded data.
