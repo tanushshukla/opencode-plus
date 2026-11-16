@@ -78,6 +78,7 @@ import { validateYamlStructure, resolveConfigPath } from "./lib/validation.js";
 import { validateConfigTemplates } from "./lib/template-validation.js";
 import { configApplyGuidance } from "./lib/config-apply.js";
 import { createSafeConfigWriter } from "./lib/safe-config-store.js";
+import { applyConfigTextPatch } from "./lib/config-text-patch.js";
 import { captureHomeAssistantPage } from "./lib/screenshot.js";
 import { extractContentFromHtml, extractConfigurationSection, extractYamlExamples } from "./lib/html-parser.js";
 import {
@@ -1620,7 +1621,7 @@ function loadLocalDeprecationPatterns() {
  * GitHub URL for the latest deprecation patterns.
  * This allows pattern updates between add-on releases.
  */
-const GITHUB_PATTERNS_URL = "https://raw.githubusercontent.com/magnusoverli/opencode/main/ha_opencode/rootfs/opt/shared/deprecation-patterns.json";
+const GITHUB_PATTERNS_URL = "https://raw.githubusercontent.com/magnusoverli/opencode/main/ha_opencode_beta/rootfs/opt/shared/deprecation-patterns.json";
 
 /**
  * HA Alerts JSON endpoint (public, no auth required).
@@ -2608,7 +2609,7 @@ const TOOLS = [
   {
     name: "get_agent_capabilities",
     title: "Get Agent Capability Status",
-    description: "Report Home Assistant agent capabilities, discover registered native LLM API IDs and names (HA 2026.9+), check the saved API selection, and probe native MCP endpoints. Registry discovery is read-only and separate from endpoint readiness and bridge enablement. Use this to find a custom API ID or diagnose native MCP setup.",
+    description: "Report the configured MCP server catalogue and Home Assistant native API readiness. mcp.current_agent is a runtime-observed agent tool snapshot when available, otherwise unknown; catalogue membership is not agent permission or approval. Discover registered native LLM API IDs and names (HA 2026.9+), check the saved selection, and probe native MCP endpoints. Registry discovery is read-only and separate from endpoint readiness and bridge enablement.",
     inputSchema: EMPTY_INPUT_SCHEMA,
     annotations: {
       readOnly: true,
@@ -2956,6 +2957,35 @@ const TOOLS = [
     },
   },
   
+  {
+    name: "patch_config_safe",
+    title: "Safe Config Patch",
+    description: "Patch an existing direct-managed YAML file using unique exact-text matches, preserving unrelated bytes. Preview defaults to dry_run=true; after approval apply the same edits with both source and candidate SHA-256s from preview. Up to 20 non-overlapping edits, 16 KiB combined old/new UTF-8 text per edit. Reuses safe config checks, atomic replacement, backups and guarded recovery. Full HA validation occurs after writing, not in preview. Never reloads HA. Editor-managed resources should use their supported editor API.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Existing .yaml/.yml path under /homeassistant; no secrets, hidden or internal paths." },
+        edits: {
+          type: "array", minItems: 1, maxItems: 20,
+          items: {
+            type: "object",
+            properties: {
+              old_text: { type: "string", minLength: 1, maxLength: 16384 },
+              new_text: { type: "string", maxLength: 16384 },
+            },
+            required: ["old_text", "new_text"], additionalProperties: false,
+          },
+        },
+        expected_revision: { type: "string", pattern: "^[a-f0-9]{64}$", description: "Required on apply: source SHA-256 from the reviewed preview." },
+        expected_candidate: { type: "string", pattern: "^[a-f0-9]{64}$", description: "Required on apply: candidate SHA-256 from the reviewed preview." },
+        dry_run: { type: "boolean", default: true },
+        confirm_deletions: { type: "boolean", default: false },
+      },
+      required: ["file_path", "edits"], additionalProperties: false,
+    },
+    annotations: { readOnly: false, idempotent: false, destructive: true },
+  },
+
   // === DECISION NOTES ===
   {
     name: "remember_decision",
@@ -3235,7 +3265,7 @@ const TOOLS = [
   {
     name: "get_store_audit",
     title: "Get Store Audit",
-    description: "Return a bounded read-only audit of Supervisor store apps and repositories. Repository credentials, query strings, and fragments are removed.",
+    description: "Return a bounded read-only audit of Supervisor store apps and repositories. Follow next_offset with the same limit until null for a complete audit. Each page is a fresh read; restart if the store changes. Repository credentials, query strings, and fragments are removed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3243,8 +3273,9 @@ const TOOLS = [
           type: "integer",
           minimum: 1,
           maximum: SUPERVISOR_MAX_LIST_LIMIT,
-          description: `Maximum apps and repositories to return (default ${SUPERVISOR_DEFAULT_LIST_LIMIT}).`,
+          description: `Maximum apps and repositories to return per page (default ${SUPERVISOR_DEFAULT_LIST_LIMIT}).`,
         },
+        offset: { type: "integer", minimum: 0, description: "Zero-based page offset; use the previous result's next_offset." },
       },
       additionalProperties: false,
     },
@@ -3841,14 +3872,14 @@ const TOOLS = [
   {
     name: "supervisor_app_inspect",
     title: "Inspect Supervisor App",
-    description: "Read app state and redacted configuration with an opaque inspection revision (full profile). All option strings are withheld. Use get_support_logs(source='addon', addon_slug=...) for bounded redacted logs. No app configuration or lifecycle changes are made.",
+    description: "Read app name, state and redacted configuration with an opaque inspection revision (all profiles). Only schema-constrained standard log_level strings are visible; other strings are withheld. option_states distinguishes unset from withheld. Use get_support_logs(source='addon', addon_slug=...) for bounded redacted logs. No app configuration or lifecycle changes are made.",
     inputSchema: { type: "object", properties: { slug: { type: "string" } }, required: ["slug"], additionalProperties: false },
     annotations: { readOnly: true, idempotent: true },
   },
   {
     name: "supervisor_app_preview",
     title: "Preview Supervisor App Change",
-    description: "Create a five-minute, single-use preview from supervisor_app_inspect's revision. For action=options provide an object merge in changes; omitted fields and nested secrets remain intact. Credentials, arrays and deletions require manual app configuration. Other actions: start, stop, restart. Supervisor validates full options without saving. Current-app mutations are blocked. Show the proposal and obtain approval before supervisor_app_apply. A preview grants no permission.",
+    description: "Create a five-minute, single-use preview from supervisor_app_inspect's revision (all profiles, including read-only agent). Returns a redacted field-level before/after diff in review. For action=options provide an object merge in changes; omitted fields and nested secrets remain intact. Credentials, arrays and deletions require manual configuration. Other actions: start, stop, restart. Validates without saving; creates only an expiring in-memory plan. Current-app changes are blocked. A preview grants no permission: switch to an apply-capable agent in full profile, review and obtain approval before supervisor_app_apply.",
     inputSchema: { type: "object", properties: {
       slug: { type: "string" }, expected_revision: { type: "string", pattern: "^[a-f0-9]{64}$" },
       action: { type: "string", enum: ["options", "start", "stop", "restart"] },
@@ -5271,9 +5302,15 @@ async function handleToolCall(request) {
       }
 
       // === SAFE CONFIG WRITER ===
+      case "patch_config_safe":
       case "write_config_safe": {
-        const { file_path, content, dry_run = false, validate_templates = true, confirm_deletions = false } = args;
-        sendLog("info", "config", { action: "write_config_safe", file_path, dry_run });
+        const isPatch = name === "patch_config_safe";
+        const { file_path, confirm_deletions = false } = args;
+        const validate_templates = isPatch || (args.validate_templates ?? true);
+        const dry_run = args.dry_run ?? isPatch;
+        let content = args.content;
+        let patchSource;
+        sendLog("info", "config", { action: name, file_path, dry_run });
         
         // Step 1: Validate and resolve the file path
         const resolvedPath = resolveConfigPath(file_path);
@@ -5290,11 +5327,40 @@ async function handleToolCall(request) {
           });
         }
         
+        if (isPatch) {
+          const relativePath = resolvedPath.slice(HA_CONFIG_DIR.length + 1);
+          const forbidden = new Set(["secrets.yaml", "secrets.yml", ".storage", ".cloud", "deps", "tts", "__pycache__"]);
+          if (!resolvedPath.startsWith(HA_CONFIG_DIR + "/") || !/\.ya?ml$/i.test(relativePath) ||
+              relativePath.split("/").some(part => part.startsWith(".") || forbidden.has(part.toLowerCase()))) {
+            return makeCompatibleResponse({ content: [createTextContent("Safe Config Patch - REFUSED: restricted path.")], isError: true });
+          }
+        }
+
         const writer = createSafeConfigWriter();
         let baseline;
         try { baseline = writer.snapshot(resolvedPath); }
         catch {
           return makeCompatibleResponse({ content: [createTextContent("Safe Config Write - REFUSED: source path is unsafe, unavailable or oversized. No file was modified.")], isError: true });
+        }
+        if (isPatch) {
+          if (baseline.bytes === null) {
+            return makeCompatibleResponse({ content: [createTextContent("Safe Config Patch - REFUSED: missing file.")], isError: true });
+          }
+          if ((!dry_run || args.expected_revision !== undefined) &&
+              (!/^[a-f0-9]{64}$/.test(args.expected_revision || "") || args.expected_revision !== baseline.revision)) {
+            return makeCompatibleResponse({ content: [createTextContent("Safe Config Patch - REFUSED: missing or stale source revision.")], isError: true });
+          }
+          try {
+            patchSource = baseline.bytes.toString("utf8");
+            if (!Buffer.from(patchSource, "utf8").equals(baseline.bytes)) throw new Error("invalid_utf8");
+            content = applyConfigTextPatch(patchSource, args.edits);
+            if (content === patchSource) throw new Error("no_change");
+            if (!dry_run && createHash("sha256").update(content).digest("hex") !== args.expected_candidate) {
+              throw new Error("candidate_revision_mismatch");
+            }
+          } catch (error) {
+            return makeCompatibleResponse({ content: [createTextContent(`Safe Config Patch - REFUSED: ${error.message}.`)], isError: true });
+          }
         }
         const previousContent = validate_templates ? baseline.bytes?.toString("utf8") ?? null : null;
         const memoKey = createHash("sha256")
@@ -5445,6 +5511,15 @@ async function handleToolCall(request) {
           responseText += `**File:** \`${file_path}\`\n`;
           responseText += `**Mode:** Validation only (no file changes)\n\n`;
           responseText += `**Source Revision:** \`${baseline.revision}\`\nPass this as expected_revision after approval. This preflight does not run full HA validation against the proposed content.\n\n`;
+          if (isPatch) {
+            responseText += `**Patch preview:** ${args.edits.length} exact replacement(s); only the specified text ranges change. Candidate SHA-256: \`${createHash("sha256").update(content).digest("hex")}\`. Pass this as expected_candidate on apply. Review the supplied exact replacements; patch text is not echoed here.\n`;
+            for (const [index, edit] of args.edits.entries()) {
+              const position = patchSource.indexOf(edit.old_text);
+              const line = patchSource.slice(0, position).split("\n").length;
+              responseText += `- Edit ${index + 1}: source line ${line}, ${Buffer.byteLength(edit.old_text)} bytes replaced by ${Buffer.byteLength(edit.new_text)} bytes.\n`;
+            }
+            responseText += "\n";
+          }
           
           if (hasBlockingErrors) {
             responseText += `## BLOCKING ERRORS (must fix before writing)\n\n`;
@@ -5807,13 +5882,15 @@ async function handleToolCall(request) {
 
       case "get_store_audit": {
         const limit = clampSupervisorLimit(args?.limit, SUPERVISOR_DEFAULT_LIST_LIMIT, SUPERVISOR_MAX_LIST_LIMIT);
-        sendLog("debug", "supervisor-read", { action: "get_store_audit", limit });
-        const data = projectStoreAudit(await callSupervisor("/store"), { limit });
+        const offset = args?.offset ?? 0;
+        if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("offset must be a nonnegative safe integer");
+        sendLog("debug", "supervisor-read", { action: "get_store_audit", limit, offset });
+        const data = projectStoreAudit(await callSupervisor("/store"), { limit, offset });
         return makeCompatibleResponse({
           content: [createCompactJsonContent(
             "Returned bounded Supervisor store and repository audit",
             data,
-            { source: "supervisor", limit, repository_credentials_omitted: true },
+            { source: "supervisor", limit, offset, repository_credentials_omitted: true },
             { audience: ["assistant"], priority: 0.8 },
           )],
         });
@@ -7293,7 +7370,9 @@ First load the home-assistant-configuration skill and resolve automation include
 10. Check the reload result and affected runtime entity using read-only tools; inspect relevant errors if needed. Never trigger or enable the automation just to verify loading.
 11. Report saved/reloaded/load-verified separately. If reload is unapproved or call_service is absent, report saved, pending reload; offer HA Developer Tools → YAML or the full profile after an add-on restart. Never bypass a reduced profile via shell/API calls.
 
-**CRITICAL:** When writing to ANY config file, the content must include everything that was already there. Writing only new content will permanently delete existing configuration. \`write_config_safe\` will block writes that would lose list entries, drop top-level keys, or significantly shrink the file â€” but always verify yourself first by reading the file before writing.
+For bounded changes to existing direct-managed YAML, \`patch_config_safe\` is also available: preview the exact replacements, obtain approval, and apply the same edits with both \`expected_revision\` and \`expected_candidate\` from preview. Keep the same separately approved reload and verification steps. Editor-managed resources use their supported editor API.
+
+**CRITICAL:** With \`write_config_safe\`, content must include everything that was already there; never submit a fragment as a complete replacement. Both file tools retain content-loss checks. Read the configuration and review the complete replacement or exact patch before approval.
 
 Consider edge cases and make the automation robust.`,
               annotations: { audience: ["assistant"], priority: 1.0 },

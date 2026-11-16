@@ -2,7 +2,7 @@
 
 This is the **beta channel** for the OpenCode add-on. It contains experimental features and fixes that are being validated before inclusion in the stable release.
 
-The unreleased beta candidate pins OpenCode `2.3.0`, OpenChamber `2.7.2`, and HAB `1.8.0`, retaining
+Beta `3.5.0b5` pins OpenCode `2.3.0`, OpenChamber `2.7.2`, and HAB `1.8.0`, retaining
 stable's desktop/mobile workspace recovery and live PPQ
 private-model discovery. The unrelated post-3.2.3 Zigporter compatibility patch
 is not included. Beta keeps its own app identity and persistent storage; installing
@@ -53,7 +53,8 @@ OpenCode Assist** uses the same Supervisor discovery flow.
 
 **3.2.0b6** removes the redundant Assist setup header from both Ingress interfaces.
 Use Home Assistant's discovered integration or **Add integration** for setup.
-Companion **0.1.0b7** also includes the add-on icon and logo, served locally by HA.
+Companion **0.1.0b8** includes the add-on icon and logo, served locally by HA, and
+clarifies the **AI tools** selection for HA 2026.11.
 Restart **Home Assistant Core** after the app updates the companion, then refresh
 the integration page to load the branding.
 
@@ -611,10 +612,28 @@ OpenCode's own bundled `homeassistant` MCP supplies configuration, validation, d
 | Entry in HA's MCP card | Endpoint | How it relates to this app |
 | --- | --- | --- |
 | **Your MCP API** | `/api/mcp` | Combines HA's selected LLM APIs. Choose `home_assistant` under **Native tool selection** (new-install default). |
-| **Assist** | `/api/mcp/assist` | Choose `assist` for focused home-control and context tools; explicit choices are retained. |
+| **Device control** (previously **Assist**) | `/api/mcp/assist` | Choose `assist` for focused home-control and context tools; explicit choices are retained. |
+| **Home Assistant** (HA 2026.11+) | `/api/mcp/homeassistant` | Admin-only tools, not limited to exposed entities. Choose `custom` with API ID `homeassistant` only when this broader access is intended. |
 | **Home Assistant Read-Only** (when enabled and connected) | `/api/mcp/mcp-<app-slug>` | This app's read-only tools made available through HA. Created by **Expose read-only MCP to Home Assistant**, the opposite-direction connection; not the native bridge's default target. |
 
-On new HA 2026.10 MCP Server setups, **Your MCP API** exposes all registered LLM APIs by default, including APIs added later; older setups retain their selections. It can include the app's read-only API as well. A larger catalogue can mean more tools and overlap, but does not automatically grant unrestricted HA administration. Choose `assist` for focused home control or `home_assistant` for HA's combined selection. Save and restart after changes. See [Expose Read-Only MCP to Home Assistant](#expose-read-only-mcp-to-home-assistant) for the reverse connection.
+On new HA 2026.10 MCP Server setups, **Your MCP API** exposes all registered LLM APIs by default, including APIs added later; older setups retain their selections. It can include the app's read-only API as well. On HA 2026.11+, the new `homeassistant` API provides administrative tools outside the exposed-entity boundary. The native bridge authenticates as Supervisor's admin system user, so review the selected APIs in HA rather than assuming admin-only tools will be unavailable. Choose `assist` for focused home control or `home_assistant` for HA's combined selection. Save and restart the app after changing its native selection. See [Expose Read-Only MCP to Home Assistant](#expose-read-only-mcp-to-home-assistant) for the reverse connection.
+
+**Names matter:** the app setting `home_assistant` means the configured `/api/mcp`
+endpoint. HA's API ID `homeassistant` (no underscore) means the separate admin API.
+
+**HA 2026.11 read-only mode:** enable **Read-only** in HA's MCP Server options and
+use the app's `home_assistant` selection to retain that filtering. HA omits
+non-read-only tools from `/api/mcp` and rejects attempts to call them. This option
+does **not** apply to keyed URLs such as `/api/mcp/assist` or
+`/api/mcp/homeassistant`, nor to OpenCode's bundled tools or shell. Selecting
+`assist` is not a read-only mode: it can control exposed devices.
+
+**Conversation behavior on HA 2026.11:** for an Assist agent using HA tools, HA
+reuses the system prompt and tool catalog within the same conversation. Use tools
+for current state; time/state values embedded in instruction templates may remain
+at their initial values. Changes to exposure may need a new conversation. HA
+rejects overlapping turns on the same conversation and retains failed messages;
+wait for the current turn to finish rather than resending actions blindly.
 
 Home Assistant has a native `llm` integration and native MCP endpoints for registered LLM APIs. PR [home-assistant/developers.home-assistant#3236](https://github.com/home-assistant/developers.home-assistant/pull/3236) documents the contract: every registered LLM API is exposed at `/api/mcp/<API ID>` once Home Assistant's MCP Server integration is set up. The built-in Assist API uses the API ID `assist`.
 
@@ -1158,6 +1177,21 @@ compatible pre-upgrade backup.
 The #195 compaction migration fix is already included. Retry the same app with
 preserved source history; do not delete compaction messages or summaries.
 
+These failures share a startup pipeline, but require different evidence:
+
+| Error | Meaning | Next step |
+| --- | --- | --- |
+| `session_projection_mismatch` with `project_id` or `path` (#211/#217) | Converted conversation placement differs from the preserved source. | The current beta restores source placement before exact validation. Retest against the affected history after a supported upgrade of that same app. |
+| `message_projection_mismatch` involving compaction (#195) | Compaction event shape differs from the validator's expectation. | The included fix preserves compaction summaries and retained context; deletion is not required. Other message mismatches need their own diagnosis. |
+| `unexpected_migration_work` (#202) | An unrecognized object exists in the private migration work directory. | Share the startup line containing entry, bounded path, type, ownership and mode. Leave the object intact. |
+| `unsafe_path_type` (#207) | A required file/directory has a different filesystem type. | Share the failing path and expected/actual type from the startup log. Do not treat this as a permissions-only error. |
+
+A fresh beta installation beside stable does **not** test the failing stable
+history. If the affected installation is stable, wait for a stable promotion or
+an explicitly supported backup-based test procedure; do not manually copy its
+private databases into beta. A later migration error may become visible only
+after an earlier blocker is resolved.
+
 ### Safe-write transactions
 
 `write_config_safe` now requires a reviewed source revision for actual writes:
@@ -1172,6 +1206,27 @@ A conflict requires a new read, preflight and approval, not an automatic revisio
 refresh. Local checks happen before saving; authoritative full HA validation
 still checks live configuration **after** atomic replacement. A dry-run pass is
 not full HA validation of staged content, and a save does not reload HA.
+
+For a small change to an existing direct-managed YAML file, beta also provides
+`patch_config_safe` in the `configuration` and `full` tool profiles:
+
+1. Read the affected content and surrounding context. Supply `file_path` and
+   `edits: [{old_text: "...", new_text: "..."}]`. Each old text must match exactly
+   once in the original file; edits cannot overlap.
+2. Preview (the default `dry_run: true`). Review the exact replacements alongside
+   the returned line positions, byte counts, **Source Revision** and
+   **Candidate SHA-256**. The preview does not render a diff.
+3. After approval, apply the same edits with `dry_run: false`,
+   `expected_revision` and `expected_candidate` from that preview.
+
+The tool permits up to 20 edits with at most 16 KiB of combined old/new UTF-8
+text per edit, in an existing `.yaml`/`.yml` file. The complete candidate must
+pass the existing 1 MiB YAML preflight and parser complexity limits. It preserves
+unrelated bytes, comments and formatting; secrets and hidden/internal paths are
+refused. It uses the same content-loss checks, atomic writer, backup and recovery
+pipeline as `write_config_safe`. Full HA validation still happens after writing,
+and reload/activation is a separate approved step. Supported editor APIs remain
+the route for editor-managed automations, scripts and scenes.
 
 The writer retains unique 0600 recovery copies and journals in
 `/homeassistant/.opencode-safe-write-backups/`. These may contain sensitive
@@ -1202,17 +1257,39 @@ fields are redacted; results can still contain private home configuration.
 Permission this tool independently in custom agents. Compact/configuration
 profiles and the managed read-only agent are not broadened by this addition.
 
-Supervisor management is also full-profile only:
+Supervisor inspection and previews are available in all profiles and to the
+managed read-only agent. Application remains full-profile only:
 
-- `supervisor_app_inspect` returns an opaque revision and redacted options. All
-  option strings are withheld, including strings with unfamiliar credential names.
-- `supervisor_app_preview` validates a revision-bound object merge without saving.
-  Omitted nested fields remain intact. Credential edits, array replacement and
-  deletions require the app's Configuration tab. Lifecycle previews support
-  `start`, `stop` and `restart`; current-app mutations are blocked.
-- `supervisor_app_apply` requires native permission approval plus the exact
-  preview ID and review object. Previews are single-use, expire after five
-  minutes, and disappear on restart. Saving options does not restart the app.
+| Tool | Behavior |
+| --- | --- |
+| `supervisor_app_inspect` | Returns display name (slug fallback), state, opaque revision and redacted options. `option_states` distinguishes visible, withheld and unset fields. |
+| `supervisor_app_preview` | Validates a revision-bound object merge and returns a field-level before/after `diff` inside the bound `review`. Lifecycle previews describe current and expected state. Creates an expiring in-memory plan, without saving options or changing lifecycle. |
+| `supervisor_app_apply` | Requires an apply-capable agent, full profile, native permission approval, and the exact preview ID and review object. Rechecks the source and verifies readback. |
+
+Only `log_level` strings whose Supervisor select schema contains exclusively
+standard log levels are visible. Free-form strings (including `ignore_pattern`),
+other enumerations, arrays and credential fields stay withheld. A withheld change
+is marked in the diff without exposing either value; an unset field is distinct
+from a withheld one. Inspection state lists are capped at 256 fields and report
+truncation; proposals exceeding 256 changed fields are rejected for smaller review.
+Omitted nested fields remain intact. Credential edits, array replacement and
+deletions require the app's Configuration tab. Lifecycle previews support
+`start`, `stop` and `restart`; current-app changes are blocked.
+
+To apply a read-only agent's proposal, switch to an apply-capable agent (normally
+Build) in the full profile, review the same proposal and approve application.
+A preview grants no permission. Previews are single-use, expire after five
+minutes, and disappear on app/MCP-server restart. A profile change requiring
+restart therefore needs fresh inspection and preview. Saving options does not
+restart the target app.
+
+`get_agent_capabilities` labels `mcp` as the configured server catalogue, rather
+than claiming that every listed tool is available to the caller. The bundled
+OpenCode plugin adds `mcp.current_agent` from a fresh matching model-context
+snapshot: agent ID, observed time and separate bundled/native tool lists.
+Direct MCP clients or calls without matching context report `unknown`.
+The snapshot describes tools offered to that agent, not guaranteed execution,
+per-call authorization or evidence of a permission-popup click.
 
 Supervisor has no atomic conditional-save contract. The tool rechecks state and
 validates before mutation, then verifies readback. An uncertain result is not
@@ -1225,12 +1302,19 @@ administrator authenticated with the separate LAN password can request
 `POST /api/pair`; the returned code expires in five minutes and is single-use.
 Native clients redeem `GET /auth/connect/<code>` to obtain a private token, then
 use Basic authentication with username `opencode` and that token as the password.
-Browser redemption sets a Secure/HttpOnly/SameSite cookie terminating at the LAN
-proxy. Cookies and device tokens are never sent to the private backend.
+Without `Accept: text/html`, redemption returns JSON `{"token":"..."}`.
+With `Accept: text/html`, it returns a 303 redirect to `/api/info` and sets the
+`opencode_session` cookie (Secure, HttpOnly, SameSite=Lax). That cookie is also
+accepted on subsequent requests; cookie-authenticated mutations require the
+same-origin checks described above. Bearer tokens, `X-Opencode-Token`, query-string
+tokens and a cookie named `session` are not supported. Authentication terminates
+at the LAN proxy; cookies and device tokens never reach the private backend.
 
 Each device token expires after 30 days and is separately revocable. With the
 administrator LAN credentials, `GET /api/lan/devices` lists opaque device IDs and
 timestamps; `DELETE /api/lan/devices/<id>` revokes one and closes its proxy sockets.
+These are HTTP administration endpoints, not UI-only operations.
+`/api/credential` manages provider credentials, not paired devices.
 Device tokens cannot issue pairings or manage the device inventory. App restart
 or LAN password rotation revokes every device; history/provider credentials remain
 untouched. Store codes/tokens privately, never in logs, Git, URLs containing

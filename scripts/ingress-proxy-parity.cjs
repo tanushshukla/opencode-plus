@@ -27,4 +27,21 @@ function withoutBetaEditorRoute(source) {
   return source;
 }
 
-module.exports = { withoutBetaEditorRoute };
+function withoutBetaStorageScope(source) {
+  source = source.replace(/\r\n/g, "\n");
+  // Reviewed beta-only #208 fix: exact token-sharing authorization path.
+  const oauthPaths = '!["/oauth/authorize", "/api/accounts/authorize"].includes(authorizeUrl.pathname)';
+  assert.equal(source.split(oauthPaths).length, 2, "Expected one reviewed beta-only OAuth path addition");
+  source = source.replace(oauthPaths, 'authorizeUrl.pathname !== "/oauth/authorize"');
+  for (const addition of [
+    'const { installBrowserStorageScope } = require("./openchamber-browser-storage.js");\n',
+    '  const storageNamespace = process.env.ADDON_CHANNEL === "beta" ? "ha-opencode-beta" : "ha-opencode-stable";\n',
+    '    + `  (${installBrowserStorageScope.toString()})(window, ${JSON.stringify(storageNamespace)});\\n`\n',
+  ]) {
+    assert.equal(source.split(addition).length, 2, "Expected one reviewed beta-only storage addition");
+    source = source.replace(addition, "");
+  }
+  return source;
+}
+
+module.exports = { withoutBetaEditorRoute, withoutBetaStorageScope };

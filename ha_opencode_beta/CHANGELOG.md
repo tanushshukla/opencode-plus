@@ -1,10 +1,42 @@
 # Changelog
 
-## Unreleased
+## 3.5.0b5
+
+- **Improve Supervisor app review ([#199](https://github.com/magnusoverli/opencode/issues/199))** — show app display names, allow inspection and non-applying previews from all profiles and the managed read-only agent, and bind bounded before/after diffs to reviewed plans. Distinguish unset from withheld options; reveal only schema-constrained standard `log_level` strings. Apply still requires the full profile, an apply-capable agent and native permission approval.
+- **Correct capability reporting ([#199](https://github.com/magnusoverli/opencode/issues/199))** — label the MCP server catalogue explicitly and add a bounded, agent-specific tool snapshot from OpenCode's model context. Missing/stale context stays unknown; tool availability does not claim per-call authorization or popup approval.
+
+- Beta-only release. Focused local checks passed (135 tests, one Linux-only skip), including the pinned OpenCode 2.3.0 read-only preview → Build approval handoff. Installed-system acceptance of these additions remains pending.
+
+## 3.5.0b4
+
+- **Qualify HA 2026.11 compatibility ([#45](https://github.com/magnusoverli/opencode/issues/45))** — test the companion against HA 2026.11.1 as well as 2026.10, including cached tool context, administrator authorization, failed/concurrent conversations and native MCP read-only filtering. Companion 0.1.0b8 uses HA's **AI tools** wording and explains the broader admin API. Document that HA's read-only option applies only to the configured MCP endpoint; preserve configured-endpoint tool rejections without retrying a keyed API.
+
+- **Fix false `entity_id` deprecation warnings** — integrate [@BBungalow](https://github.com/BBungalow)'s regex fix and regression coverage from [PR #210](https://github.com/magnusoverli/opencode/pull/210) into beta. `event_data:` and unrelated suffixed keys no longer match the service-data rule. Beta MCP/LSP refreshes now use beta's rules so stable's older pattern cannot replace the fix.
+- **Add revision-guarded YAML patching** — adapt [@jameswgm87](https://github.com/jameswgm87)'s `patch_config_safe` implementation from [PR #213](https://github.com/magnusoverli/opencode/pull/213). Preview bounded, unique exact-text replacements, then apply the approved source and candidate hashes through the existing safe-write validation, backup and recovery pipeline. Preserve editor-API routing for editor-managed resources; patches never reload Home Assistant. Integrated in beta for qualification before stable promotion.
+
+- **Qualify combined migration failures ([#211](https://github.com/magnusoverli/opencode/issues/211), [#217](https://github.com/magnusoverli/opencode/issues/217), [#195](https://github.com/magnusoverli/opencode/issues/195))** — extend real-converter coverage to existing/nonexistent workspaces, Git repositories, missing project records and compacted conversations together. Verify that the existing placement repair recovers a failed migration without changing source history, while corrupted placement or compaction content remains rejected.
+- **Improve preserved-work diagnostics ([#202](https://github.com/magnusoverli/opencode/issues/202), [#207](https://github.com/magnusoverli/opencode/issues/207))** — unknown migration work now reports bounded path/ownership/mode metadata at startup; add CLI-level preservation checks and distinguish filesystem blockers from history-validation errors in recovery guidance. This does not automatically repair unknown filesystem states.
+
+- **Fix ChatGPT callback handoff ([#208](https://github.com/magnusoverli/opencode/issues/208))** — recognize the pinned token-sharing flow's `/api/accounts/authorize` URL as well as legacy `/oauth/authorize`. Correct the regression fixture to exercise the actual newer route, including browser callback submission. Version 3.5.0b3 still misses this handoff; callback state, origin, and destination checks remain enforced.
+
+- Beta-only release. Safe YAML patching has focused Linux fixture coverage for preview/apply, stale revisions, validation failures and guarded recovery; installed Home Assistant acceptance remains pending. Saving YAML does not reload Home Assistant.
+
+## 3.5.0b3
+
+- **Separate stable/beta browser state ([#199](https://github.com/magnusoverli/opencode/issues/199))** — isolate beta browser preferences when both apps share the Home Assistant origin. Existing unscoped preferences remain preserved; beta starts its own workspace/model/session selection.
+- **Make OpenAI handoff easier to find ([#209](https://github.com/magnusoverli/opencode/issues/209), [#208](https://github.com/magnusoverli/opencode/issues/208))** — add a direct-click sign-in handoff link and callback instructions when browsers block the automatic tab. Wait for integration publication before starting one OAuth attempt, fixing the remaining cold-start race.
+- **Preserve external MCP references ([#216](https://github.com/magnusoverli/opencode/issues/216))** — retain file references through upstream configuration loading and isolate invalid external definitions from bundled HA MCP activation.
+- **Recover terminal connections ([#218](https://github.com/magnusoverli/opencode/issues/218))** — retry established WebSocket errors with bounded backoff while retaining tmux sessions and input. Includes a real-browser error-before-close regression; this does not identify the original cause of recurring disconnects.
+- **Correct editing guidance ([#215](https://github.com/magnusoverli/opencode/issues/215))** — distinguish editor-managed resource saves from whole-file YAML safe writes and remove the contradictory in-place editing exception.
+- **Correct Supervisor results ([#199](https://github.com/magnusoverli/opencode/issues/199))** — report acknowledged restarts still in startup as in progress, make preview text action-specific, and paginate store audits beyond 100 entries.
+- **Improve MCP setup diagnostics ([#214](https://github.com/magnusoverli/opencode/issues/214))** — redirect trusted setup navigation to its canonical path and explain unavailable-service states without changing access checks. An end-to-end regression verifies that every advertised MCP tool, including HAB, reaches the pinned runtime's model request. The reported generic HA side-panel failure remains under investigation.
+- **Clarify LAN pairing ([#205](https://github.com/magnusoverli/opencode/issues/205))** — document the JSON/browser exchange and device revocation contract.
+- **Still under investigation:** ChatGPT account/model rejection ([#208](https://github.com/magnusoverli/opencode/issues/208)) and migration blockers involving unknown work or unsafe paths ([#202](https://github.com/magnusoverli/opencode/issues/202), [#207](https://github.com/magnusoverli/opencode/issues/207)). Existing data-preserving diagnostics remain in place; this release does not claim to repair those states.
+
+## 3.5.0b2
 
 - Await plugin activation before starting provider OAuth on OpenCode 2.3.0, and resolve historical session URLs during mobile workspace recovery without moving stored history.
 - Share local/CI contract commands, isolate affected release channels, and retain diagnostic logs for failures.
-
 - Update OpenCode CLI/plugin to **2.3.0**, OpenChamber to **2.7.2** (immutable source `1a151518c95cc5ff3578bab593d2f96862ff3bb8`), and HAB to **1.8.0**. Upstream releases checked 2026-11-15.
 - Refresh runtime and OpenChamber dependency locks, retain the Home Assistant adaptations, and use upstream's corrected Git test fixtures.
 - Add the shipped OpenCode **2.2.5** generation to guarded upgrade coverage.

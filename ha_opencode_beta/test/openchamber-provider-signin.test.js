@@ -5,7 +5,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 const script = path.join(__dirname, "../rootfs/opt/openchamber/patch-provider-signin.cjs");
-const { patchProviderSignin } = require(script);
+const { patchProviderSignin, activationSteps } = require(script);
 
 function fixture(t, newline = "\n") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-signin-"));
@@ -15,6 +15,8 @@ function fixture(t, newline = "\n") {
   // Independent anchor from pinned OpenChamber 2.5.3. The original component's
   // method labels, SDK calls, polling and cancellation must remain untouched.
   const original = `// upstream authentication stays unchanged
+        {attempt.url && (
+          <div className="flex items-center gap-2">
       const { data } = await sdk().integration.oauth.connect({
    return (
     <div className={cn('space-y-4', className)}>
@@ -36,9 +38,10 @@ for (const newline of ["\n", "\r\n"]) {
     assert.match(result, /detects approval automatically/);
     assert.match(result, /no restart or Terminal switch/);
     assert.match(result, /OpenCode handles credential storage and refresh/);
-    assert.match(result, /await client\.plugin\.list\(\);\n      const \{ data \} = await client\.integration\.oauth\.connect/);
-    const withoutWarmup = result.replace(/      \/\/ The pinned server's plugin list[\s\S]*?      const \{ data \} = await client.integration.oauth.connect\(\{/, "      const { data } = await sdk().integration.oauth.connect({");
-    assert.equal(withoutWarmup.replace(/      \{integrationId === 'openai'[\s\S]*?      \)\}\n/, ""), original);
+    assert.ok(result.includes(activationSteps));
+    const withoutWarmup = result.replace(/      \/\/ Plugin listing can race[\s\S]*?      const \{ data \} = await client.integration.oauth.connect\(\{/, "      const { data } = await sdk().integration.oauth.connect({");
+    const withoutHandoffLink = withoutWarmup.replace(/        \{\/\* HA_SIGNIN_LINK_START \*\/\}[\s\S]*?        \{\/\* HA_SIGNIN_LINK_END \*\/\}\n/, "");
+    assert.equal(withoutHandoffLink.replace(/      \{integrationId === 'openai'[\s\S]*?      \)\}\n/, ""), original);
     assert.throws(() => patchProviderSignin(root), /Unexpected preview provider sign-in source/);
     assert.equal(fs.readFileSync(target, "utf8"), result);
   });
@@ -57,6 +60,18 @@ test("requires an explicit upstream checkout", () => {
   const result = spawnSync(process.execPath, [script], { encoding: "utf8" });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Usage: patch-provider-signin.cjs/);
+});
+
+test("integration readiness is bounded and never starts authorization itself", async () => {
+  const wait = new (Object.getPrototypeOf(async function () {}).constructor)(
+    "client", "integrationId", "setTimeout", activationSteps);
+  let reads = 0;
+  const client = {
+    plugin: { async list() {} },
+    integration: { async list() { reads++; return { data: [] }; } },
+  };
+  await assert.rejects(wait(client, "openai", (resolve) => resolve()), /still starting/);
+  assert.equal(reads, 50);
 });
 
 test("late OAuth source drift rejects the entire patch before writing guidance", t => {
