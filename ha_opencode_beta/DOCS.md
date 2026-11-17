@@ -2,10 +2,15 @@
 
 This is the **beta channel** for the OpenCode add-on. It contains experimental features and fixes that are being validated before inclusion in the stable release.
 
-Beta `3.5.0b5` pins OpenCode `2.3.0`, OpenChamber `2.7.2`, and HAB `1.8.0`, retaining
+The next development target is **3.5.2b0**, based on released stable **3.5.1**.
+It is not published yet; the currently available beta remains **3.5.1b4**.
+See [the next-release baseline](NEXT_RELEASE.md) for source identity and the
+release preparation steps.
+
+Beta `3.5.1b4` pins OpenCode `2.3.0`, OpenChamber `2.7.2`, and HAB `1.8.0`, retaining
 stable's desktop/mobile workspace recovery and live PPQ
-private-model discovery. The unrelated post-3.2.3 Zigporter compatibility patch
-is not included. Beta keeps its own app identity and persistent storage; installing
+private-model discovery. It now includes stable 3.5.0's Zigporter compatibility,
+HAB registry-cache and project-upgrade fixes. Beta keeps its own app identity and persistent storage; installing
 beta does not transfer stable conversations or sign-ins. HA 2026.10 integration includes native LLM API discovery, prompt/context
 forwarding and an experimental native Assist/AI data-task adapter. The roadmap
 is tracked in [#45](https://github.com/magnusoverli/opencode/issues/45).
@@ -26,6 +31,190 @@ fixes, parser-based safe-write validation, guarded global Markdown agent imports
 and the opt-in for remote TTS/STT servers. Installed Supervisor
 upgrade/rollback, real Wyoming/Piper/Whisper speech, public relay pairing and
 account-backed encrypted inference remain unverified. Stable remains unchanged.
+
+## Stable baseline reconciliation in 3.5.1b4
+
+Earlier 3.5.1 betas continued from the previous beta tree rather than the complete
+stable 3.5.0 implementation. This release reconciles the shared code before the
+next stable promotion. It adds stable's reviewed Zigporter 1.4.2 compatibility
+overlay, HAB registry/state-cache invalidation and upgrade preservation of project
+placement/archive metadata, including the previous stable OpenCode 2.1.4 runtime.
+Stable's OpenChamber trust tests and HAB fixtures are included in beta qualification.
+
+All b0–b3 changes remain, including default-off Code Mode, native policies,
+instruction cleanup, guarded cache reclamation and browser channel isolation.
+Beta retains its own app identity, native MCP provenance, companion ownership,
+pattern-update URLs, workspace selections and decision-note directory.
+
+Before stable promotion, verify the installed beta upgrade: retained conversations,
+sign-ins, custom agents/skills and terminal preferences; stable/beta switching;
+and a read-only preview followed by the normal approved Build workflow.
+Automated fixtures do not establish installed upgrade/rollback acceptance.
+Back up the beta app before updating; rollback requires that matching backup.
+
+## Stable/beta workspace isolation in 3.5.1b2
+
+Home Assistant Ingress serves both apps on the same browser origin. Earlier
+versions stripped `ADDON_CHANNEL` when launching the proxy, so beta incorrectly
+used stable's browser-storage namespace. Switching instances could restore a
+private chat directory that exists only in the other app and immediately show
+**Workspace unavailable**.
+
+Beta now preserves its channel identity through that restricted launch
+environment and uses `ha-opencode-beta`; stable continues using
+`ha-opencode-stable`. Existing browser entries and conversation history are
+preserved, not copied or deleted. Beta may initialize fresh browser preferences
+instead of inheriting the shared namespace.
+
+If a bad selection was already persisted in beta's server settings, select
+**Open /homeassistant** once on the recovery screen. This starts a new draft;
+historical conversations retain their recorded directories. Reopening a
+conversation whose original workspace is genuinely missing can still show the
+recovery screen.
+
+## V2 consolidation in 3.5.1b0
+
+### Experimental MCP Code Mode
+
+Enable **MCP Code Mode** (`mcp_code_mode`) to use V2's `search`/`execute` discovery
+and JavaScript execution for bundled and native HA tools. It is **off by default**:
+small/local models may perform better with direct tools. The tool profile still
+limits the catalogue, and every operation remains subject to runtime permissions.
+Changing an app option requires an app restart.
+
+`get_agent_capabilities` and `supervisor_app_apply` stay direct. The pinned V2
+per-tool hooks do not observe nested Code Mode calls; preserving these direct
+paths keeps capability provenance and the reviewed apply/approval flow intact.
+In a Code Mode Build session, the capability result reports its complete agent
+catalogue as **unknown**, with separately observed direct-tool names. It does
+not mistake the smaller direct list for all available tools. The managed
+read-only agent denies `execute`; V2 exposes its permitted MCP tools directly
+instead, and still excludes apply and native HA tools.
+
+External MCP definitions accept their own `"codemode": true` or `false`
+(default `false`) and native `"disabled": true` or `false`. The old `enabled`
+spelling remains accepted; contradictory pairs are rejected. LSP and the private
+Assist adapter keep direct tools and their existing contracts.
+
+An automated fixture compares serialized initial requests against the real full
+bundled catalogue and exercises read-only preview → Build → native approval in
+both modes. This is **not** a real-model accuracy, latency or token-cost benchmark.
+Use the qualification record for measured evidence and installed checks still due.
+
+### Instruction ownership
+
+The packaged `/opt/ha-mcp-server/AGENTS.md` is copied to the managed global
+`/run/opencode-v2/config/opencode/AGENTS.md`. It is the single app-owned source
+loaded by the server. Dynamic briefing/decision context and user
+`/homeassistant/AGENTS.local.md` remain bounded and refreshed by the V2 context
+plugin. The actual server working directory is an isolated workspace; file work
+uses absolute `/homeassistant/...` paths.
+
+Startup no longer deploys a second `/data/context/AGENTS.md` or injects complete
+HAB/Zigporter help listings. Use the authenticated gateways' bounded discovery
+when needed. An old private beta copy is removed only when it matches its exact
+recorded ownership hash. Edited/unverifiable copies remain in place with review
+guidance; move wanted custom rules into `AGENTS.local.md`. Beta does not remove
+or rewrite `/homeassistant/AGENTS.md`, which may belong to stable or the user.
+
+### Native policies and managed boundaries
+
+The complete generated configuration passes the pinned native V2 schema,
+including `update: "disable"` rather than its old `autoupdate` alias. The exact
+old app-owned client document is converted without touching `cli.json`.
+Sensitive-read denials also use native `tool.use` policies, which cannot be
+overridden by an agent's allow or saved approval.
+
+The adapter review retains these boundaries deliberately:
+
+| Boundary | Reason retained |
+| --- | --- |
+| Approval-rule compilation for custom agents | Native policies only allow/deny; they cannot preserve mandatory ask behavior or client revision/readiness checks. |
+| Private workspace and disabled project discovery | Native policies do not sandbox plugin code or replace the app's credential/process isolation. |
+| External MCP launch/credential adapter | It supplies bounded secret resolution and unprivileged local processes. Native settings alone do not supply those guarantees. |
+| External OAuth | Not exposed by this app adapter; a complete durable sign-in/callback/recovery flow needs separate qualification. Do not assume upstream `/mcps` setup writes the app's persisted settings. |
+| HA LSP adapter | V2 does not execute native LSP servers; the app supplies authenticated HA diagnostics. |
+
+Native managed `/etc/opencode` configuration was reviewed, but moving all
+configuration roots is not required for native policies and would change
+discovery/precedence without eliminating the above adapters. The app continues
+to own its private generated configuration. Trusted custom plugins remain
+root-level code, not sandboxed by tool policies.
+
+### Retained legacy data
+
+From the **app's root shell**, inspect metadata without reading user file contents:
+
+```sh
+opencode legacy-data inspect
+```
+
+The report separates original history/accounts, old client state, active
+skills/agents/MCP assets, user-installed packages and disposable V1 cache.
+Only the app-owned generation marker is read to identify active V2 state.
+Sizes are bounded inventories; an unsafe or oversized tree is **unverified**,
+not zero bytes. The report never prints individual filenames or credentials.
+
+Only `/data/.cache/opencode` is eligible for explicit quarantine:
+
+```sh
+opencode legacy-data quarantine-cache --review <cache-revision-from-inspect>
+```
+
+Quarantine requires Linux app-root access, a validated active-generation marker
+and an existing V2 database (not a live database-health check), the
+migration lock, unchanged reviewed metadata and no observed process using the cache.
+Links, special files, nested mounts, incomplete inventories and inaccessible
+process evidence block quarantine. It may require a maintenance environment where
+process usage can be inspected. The directory is always preserved at
+`/data/.cache/.opencode-retired-<revision>` for manual inspection, including when
+post-quarantine checks fail. Do not retry by deleting unknown directories.
+
+**3.5.1b1 removes live deletion.** The old `clean-cache` command is a
+compatibility alias for quarantine only. Neither live command reclaims disk space;
+success reports `status: "quarantined"`, `quarantine_path` and `bytes_reclaimed: 0`.
+Inventory reports `quarantine_supported` separately and keeps
+`cleanup_supported: false`.
+
+Process scans and metadata snapshots cannot freeze concurrent writers. A second
+snapshot detects the reported transient writer during the process scan, but even
+a write after the final check is preserved because the live command has no deletion step.
+Quarantine is not proof that the directory is idle or immutable.
+
+#### Seven-day startup reclamation
+
+Successfully quarantined cache receives a private, root-owned receipt under
+`/data/.opencode-legacy-quarantines`. After **seven days**, it is eligible for
+automatic expiry on the next **cold app startup**. No restart is scheduled solely
+for cleanup. The grace period starts when quarantine is recorded, not at a file's
+last-modified date.
+
+Expiry runs synchronously from the container's PID-1 entrypoint, before s6,
+plugins, hooks or client services launch. The helper verifies that entrypoint is
+its PID-1 parent and that no other processes exist in the container. Calling the
+helper from a running app is refused. This relies on the app's private data
+volume; concurrent host/admin modifications to that volume are outside this
+startup boundary.
+
+Only recorded directories matching their reviewed metadata can be removed.
+Future timestamps, changed data (including file change-time differences),
+unsafe receipts, links, nested mounts, missing active-state evidence or an
+unverified startup phase cause preservation. Pre-existing quarantines without
+receipts are never adopted for automatic deletion. An interrupted removal
+disarms its receipt and leaves any remainder for manual review.
+
+Startup logs identify removed directories, total logical bytes removed and
+reasons for skipped candidates. Filesystem space actually recovered can differ
+from logical byte counts. Work is bounded; cleanup failure does not prevent
+ordinary app startup. Inventory's `cleanup_supported: false` means there is no
+live cleanup command; its `quarantine_retention_days: 7` describes startup expiry.
+
+This command **never deletes original conversation history or account files,
+the shared `/homeassistant` tree, `/data/.config/opencode`, `/data/.npm-global`,
+active V2 generations or terminal preferences**. Those are not disposable cache.
+Historical runtime test fixtures and late-upgrade conversion remain necessary;
+the production image still ships just one OpenCode runtime. Rollback means
+restoring a matching app backup, not selecting V1.
 
 ### Experimental native Assist and AI data tasks
 
@@ -132,7 +321,7 @@ worker/runtime crash can leave a temporary session behind.
 
 What is separate: each add-on has its own storage, so sessions, credentials, the OpenCode binary and generated context never mix. Decision notes are separate too — beta keeps its at `/config/opencode_beta/decisions.yaml`, and copies your existing notes there once on first start so nothing is lost. Anything you record while testing beta stays out of your stable sessions.
 
-Beta keeps its generated instructions inside the app and its decision notes in its own directory. It does not deploy the stable app's managed `AGENTS.md`. User-approved configuration edits still affect the shared Home Assistant configuration. If you previously ran beta on its own, it removes the `AGENTS.md` copy it left behind, unless you edited it or the stable add-on has since taken it over.
+Beta keeps its managed instructions inside the app and its decision notes in its own directory. It does not deploy or remove the shared `AGENTS.md`. User-approved configuration edits still affect the shared Home Assistant configuration. Only exact app-owned private beta instruction copies are retired; see [Instruction ownership](#instruction-ownership).
 
 What is shared, because it is your Home Assistant configuration directory and both add-ons work in it: your actual configuration files, and `AGENTS.local.md` — your own instructions, which neither add-on ever writes and both always load.
 
@@ -223,14 +412,14 @@ Four files decide what OpenCode knows about your installation before you type an
 
 | File | What it is | Who writes it |
 |------|-----------|---------------|
-| `/config/AGENTS.md` | The add-on's own instructions | The add-on, refreshed on update |
+| `/run/opencode-v2/config/opencode/AGENTS.md` | The app's packaged global instructions | Regenerated from the image at startup |
 | `/config/AGENTS.local.md` | **Your** standing instructions | You; the add-on never touches it |
 | `/data/context/home-briefing.md` | Generated summary of your setup | The add-on, rebuilt on every start |
 | `/config/opencode_beta/decisions.yaml` | Lasting decisions you approved | OpenCode, only when you say yes |
 
 **Your own instructions.** Create `/config/AGENTS.local.md` for standing preferences — "all Zigbee goes through Zigbee2MQTT", "new config goes in `packages/`", "always show me the diff first". A commented example lands at `/config/AGENTS.local.md.example` on first install. Add-on updates never overwrite it, `AGENTS.md` still wins on conflict, and deleting the file turns it off.
 
-This also fixes a real problem: `AGENTS.md` used to be refreshed on every add-on update whenever it still carried its original heading, which quietly discarded customizations added to it. The add-on now compares the file against what it last wrote and leaves edited copies alone, keeping a `.bak` copy the first time it cannot tell.
+Older releases maintained additional AGENTS copies. Beta now uses the packaged global source and preserves edited legacy files for review. Custom rules belong in `AGENTS.local.md`; the app never overwrites that file.
 
 **Install briefing** (option, default on). Regenerated at every start: Home Assistant version and installation type, how your configuration is split up (including whether `automations.yaml` is UI-managed), your areas and floors by name, entity counts per domain, integrations and device stacks, and your custom components. It is rebuilt rather than appended to and capped at roughly 500 tokens, so it cannot grow. It is produced by the add-on, not the AI, and never contains `secrets.yaml` values, tokens, or your coordinates.
 
@@ -385,7 +574,7 @@ Persistent CLI preferences cannot enable custom TUI plugins.
 ## Desktop Browser Tools versus HA Screenshots
 
 OpenCode's model-facing `browser` tools require a browser attached by the
-OpenCode desktop app, as described in the [V2 Tools guide](https://opencode.ai/v2/docs/tools).
+OpenCode desktop app, as described in the [V2 Tools guide](https://opencode.ai/docs/tools).
 Opening OpenChamber through Ingress does not attach that desktop browser. The
 packaged Chromium used by the optional HA `screenshot_url` tool is a separate
 capability. Desktop-browser attachment to the beta app's managed server is not
@@ -1399,7 +1588,7 @@ Do not paste keys into chat. Native `/connect` account setup remains available.
 ### Third-party plugins (Beta)
 
 **Enable third-party plugins** (`custom_plugins_enabled`) is **off by default**.
-This is a thin opt-in to [upstream OpenCode V2 plugin loading](https://opencode.ai/v2/docs/plugins),
+This is a thin opt-in to [upstream OpenCode V2 plugin loading](https://opencode.ai/docs/plugins),
 not an add-on plugin manager or a promise of compatibility with any particular
 plugin, including Magic Context. The add-on does not curate packages, install
 plugins itself, or implement an updater.

@@ -19,6 +19,7 @@ import {
   WORKSPACE_INSTRUCTIONS,
 } from "../rootfs/opt/opencode-v2-homeassistant/managed-config.js";
 import { TOOL_PROFILES } from "../rootfs/opt/ha-mcp-server/lib/tool-profiles.js";
+import { validateManagedConfig } from "../rootfs/opt/opencode-v2-homeassistant/user-config.js";
 
 const ADDON_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const GENERATOR = join(
@@ -30,6 +31,18 @@ const GENERATOR = join(
 );
 
 describe("OpenCode V2 managed configuration", () => {
+  it("validates the whole generated document against the native schema without legacy normalization", () => {
+    for (const options of [{}, { pluginEnabled: true, nativeMcpEnabled: true, mcpCodeMode: true, assistEnabled: true, lspEnabled: true },
+      { restrictSensitiveFiles: false }]) {
+      const config = buildManagedConfig(options);
+      assert.equal(validateManagedConfig(config), config);
+      assert.equal(config.update, "disable");
+      assert.equal(config.autoupdate, undefined);
+      assert.ok(!config.policies.some(policy => policy.effect === "ask"));
+    }
+    assert.throws(() => validateManagedConfig({ ...buildManagedConfig(), autoupdate: false }), /native V2 schema/);
+    assert.deepEqual(buildManagedConfig({ restrictSensitiveFiles: false }).policies, []);
+  });
   it("uses plugin directories with importable entries that preserve the original plugins", async () => {
     for (const [packageUrl, directory, original] of [
       [DEFAULT_PLUGIN_PACKAGE, "mcp-plugin", "plugin.js"],
@@ -96,6 +109,7 @@ describe("OpenCode V2 managed configuration", () => {
           endpoint: DEFAULT_MCP_ENDPOINT,
           nativeEnabled: false,
           nativeEndpoint: DEFAULT_NATIVE_MCP_ENDPOINT,
+          codemode: false,
           timeouts: { startup: 30_000, catalog: 60_000, execution: 60_000 },
         },
       },
@@ -148,6 +162,9 @@ describe("OpenCode V2 managed configuration", () => {
     );
     assert.ok(mcpRules.slice(1, -1).every((rule) => rule.effect === "allow" && rule.resource === "*"));
     assert.ok(mcpRules.some((rule) => rule.action === "homeassistant_recall_decisions" && rule.effect === "allow"));
+    for (const name of ["supervisor_app_inspect", "supervisor_app_preview"]) {
+      assert.ok(mcpRules.some(rule => rule.action === `homeassistant_${name}` && rule.effect === "allow"));
+    }
     assert.deepEqual(mcpRules.at(-1), {
       action: "homeassistant_native_*",
       resource: "*",
@@ -155,6 +172,7 @@ describe("OpenCode V2 managed configuration", () => {
     });
     for (const action of [
       "homeassistant_call_service",
+      "homeassistant_supervisor_app_apply",
       "homeassistant_write_config_safe",
       "homeassistant_remember_decision",
       "homeassistant_supersede_decision",

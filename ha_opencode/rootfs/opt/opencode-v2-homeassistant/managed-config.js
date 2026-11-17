@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { readFileSync, writeFileSync } from "node:fs";
 import { TOOL_PROFILES } from "../ha-mcp-server/lib/tool-profiles.js";
-import { prepareUserConfig } from "./user-config.js";
+import { prepareUserConfig, validateManagedConfig } from "./user-config.js";
 import { resolveMcpConfiguration } from "./mcp-config.js";
 
 export const DEFAULT_PLUGIN_PACKAGE = "file:///opt/opencode-v2-homeassistant/mcp-plugin";
@@ -17,6 +17,7 @@ export const READ_ONLY_AGENT_ID = "home-assistant-read-only";
 export const READ_ONLY_AGENT_SYSTEM = [
   "Investigate and diagnose Home Assistant without changing it.",
   "Runtime policy allows file reads, path globbing, and the compact Home Assistant diagnostic tools only; content search, edits, shell commands, subagents, LSP, and every unknown action are denied.",
+  "Supervisor app inspection and non-applying previews are allowed. Previews create expiring plans without saving options or changing lifecycle; application requires switching to an apply-capable agent in the full profile and obtaining approval.",
   "End with findings and recommendations rather than attempting a fix.",
 ].join(" ");
 
@@ -64,6 +65,7 @@ export function buildReadOnlyPermissions(workspace = DEFAULT_WORKSPACE) {
       effect: "allow",
     })),
     { action: "homeassistant_native_*", resource: "*", effect: "deny" },
+    { action: "read", resource: "*.opencode-safe-write-backups/*", effect: "deny" },
     ...SENSITIVE_READ_PATTERNS.map((resource) => ({ action: "read", resource, effect: "deny" })),
   ];
 }
@@ -77,6 +79,7 @@ export function buildManagedConfig({
   nativeMcpEnabled = false,
   nativeMcpEndpoint = DEFAULT_NATIVE_MCP_ENDPOINT,
   mcpProfile = "full",
+  mcpCodeMode = false,
   workspace = DEFAULT_WORKSPACE,
   focusMode = false,
   homeBriefing = true,
@@ -104,11 +107,13 @@ export function buildManagedConfig({
     { action: "shell", resource: "tee *", effect: "ask" },
     { action: "shell", resource: "rm *", effect: "ask" },
     { action: "shell", resource: "mv *", effect: "ask" },
+    { action: "homeassistant_supervisor_app_apply", resource: "*", effect: "ask" },
     { action: "external_directory", resource: workspace, effect: "allow" },
     { action: "external_directory", resource: `${workspace}/**`, effect: "allow" },
   ];
 
   if (restrictSensitiveFiles) {
+    permissions.push({ action: "read", resource: "*.opencode-safe-write-backups/*", effect: "deny" });
     for (const resource of SENSITIVE_READ_PATTERNS) {
       permissions.push({ action: "read", resource, effect: "deny" });
     }
@@ -125,6 +130,7 @@ export function buildManagedConfig({
           endpoint: mcpEndpoint,
           nativeEnabled: nativeMcpEnabled,
           nativeEndpoint: nativeMcpEndpoint,
+          codemode: mcpCodeMode,
           timeouts: { startup: 30_000, catalog: 60_000, execution: 60_000 },
         },
       }]
@@ -151,10 +157,15 @@ export function buildManagedConfig({
 
   return {
     $schema: "https://opencode.ai/config.json",
-    autoupdate: false,
+    update: "disable",
     share: "disabled",
     snapshots: false,
     permissions,
+    // Native hard-deny policies survive agent-level allows and saved approvals.
+    // Ask rules remain permissions: binary policies cannot show an approval UI.
+    policies: permissions.filter(rule => rule.effect === "deny").map(rule => ({
+      action: "tool.use", resource: `${rule.action}:${rule.resource}`, effect: "deny",
+    })),
     watcher: { ignore: [...WATCHER_IGNORES] },
     formatter: {
       ...(!yamlFormatting ? {
@@ -234,6 +245,8 @@ export function parseArguments(argv) {
         throw new TypeError(`${name} must be compact, configuration, or full`);
       }
       options.mcpProfile = value;
+    } else if (name === "--mcp-code-mode") {
+      options.mcpCodeMode = parseBoolean(value, name);
     } else if (name === "--workspace") {
       if (!value.startsWith("/")) throw new TypeError(`${name} must be absolute`);
       options.workspace = value.replace(/\/$/, "");
@@ -274,6 +287,11 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
       const prepared = prepareUserConfig(options, {
         warn: (message) => process.stderr.write(`${message}\n`),
       });
+      if (options.mcp_code_mode !== undefined && typeof options.mcp_code_mode !== "boolean") {
+        throw new TypeError("mcp_code_mode must be true or false");
+      }
+      const mcpPlugin = managed.plugins.find(({ package: name }) => name === DEFAULT_PLUGIN_PACKAGE);
+      if (mcpPlugin) mcpPlugin.options.codemode = options.mcp_code_mode ?? args.mcpCodeMode ?? false;
       // Keep bundled entries in the generated config; append custom entries
       // after all bundled registrations. Upstream owns selector/load semantics.
       const { plugins: customPlugins = [], ...customConfig } = prepared.config;
@@ -300,7 +318,7 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
         .map(([name]) => name);
       writeFileSync(args.externalMcpOutput, `${JSON.stringify(enabledNames)}\n`, { mode: 0o600 });
     }
-    process.stdout.write(`${JSON.stringify(managed, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(validateManagedConfig(managed), null, 2)}\n`);
   } catch (error) {
     process.stderr.write(`${error?.message ?? error}\n`);
     process.exitCode = 1;

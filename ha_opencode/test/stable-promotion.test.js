@@ -21,6 +21,8 @@ test("stable promotion retains stable identity, storage defaults and optional sp
   assert.match(config.version, /^\d+\.\d+\.\d+$/);
   assert.equal(config.panel_title, "OpenCode");
   assert.equal(config.options.openchamber_allow_remote_speech, false);
+  assert.equal(config.options.mcp_code_mode, false);
+  assert.equal(config.schema.mcp_code_mode, "bool");
   assert.equal(config.schema.openchamber_allow_remote_speech, "bool?");
   assert.equal(yaml("translations/en.yaml").configuration.native_ha_mcp_enabled.name, "Home Assistant native tools");
   const sidecar = read("rootfs/etc/s6-overlay/s6-rc.d/ha-opencode-v2-mcp-sidecar/run");
@@ -36,14 +38,14 @@ test("stable promotion aligns the native runtime and immutable UI pins", () => {
   const build = yaml("build.yaml");
   const pkg = JSON.parse(read("rootfs/opt/opencode-v2-homeassistant/package.json"));
   const lock = JSON.parse(read("rootfs/opt/opencode-v2-homeassistant/package-lock.json"));
-  assert.equal(build.args.OPENCODE_V2_VERSION, "2.1.4");
+  assert.equal(build.args.OPENCODE_V2_VERSION, "2.3.0");
   assert.equal(pkg.dependencies["@opencode/cli"], build.args.OPENCODE_V2_VERSION);
   assert.equal(pkg.dependencies["@opencode/plugin"], build.args.OPENCODE_V2_VERSION);
   assert.deepEqual(lock.packages[""].dependencies, pkg.dependencies);
   assert.equal(pkg.devDependencies["opencode-upgrade-previous"], "npm:@opencode/cli@2.0.26");
-  assert.equal(pkg.devDependencies["opencode-stable-previous"], "npm:@opencode/cli@2.1.2");
-  assert.equal(build.args.OPENCHAMBER_VERSION, "2.5.2");
-  assert.equal(build.args.OPENCHAMBER_REVISION, "c4919abc1e7a0a3beeaa126666487806bf79cfe0");
+  assert.equal(pkg.devDependencies["opencode-stable-previous"], "npm:@opencode/cli@2.1.4");
+  assert.equal(build.args.OPENCHAMBER_VERSION, "2.7.2");
+  assert.equal(build.args.OPENCHAMBER_REVISION, "1a151518c95cc5ff3578bab593d2f96862ff3bb8");
   const docker = read("Dockerfile");
   assert.ok(docker.includes(`ARG OPENCODE_V2_VERSION=${build.args.OPENCODE_V2_VERSION}`));
   assert.ok(docker.includes(`ARG OPENCHAMBER_VERSION=${build.args.OPENCHAMBER_VERSION}`));
@@ -60,13 +62,16 @@ test("stable promotion preserves the reviewed Zigporter compatibility overlay an
   const migration = read("rootfs/usr/local/bin/opencode-v2-migrate.py");
   assert.match(migration, /^V2_UPGRADE_SOURCES = .*"2\.0\.26"/m);
   assert.match(migration, /^V2_UPGRADE_SOURCES = .*"2\.1\.2"/m);
-  assert.match(migration, /^V2_UPGRADE_TARGET = "2\.1\.4"$/m);
+  assert.match(migration, /^V2_UPGRADE_SOURCES = .*"2\.1\.4"/m);
+  assert.match(migration, /^V2_UPGRADE_TARGET = "2\.3\.0"$/m);
+  assert.match(migration, /restore_project_maintenance\(baseline, target\)/);
+  assert.match(read("rootfs/opt/ha-mcp-server/index.js"), /withHabRegistryInvalidation/);
   assert.match(read("rootfs/etc/s6-overlay/s6-rc.d/init-opencode/run"), /agents-importer\.js "\$\{V2_CONFIG_TEMP\}"/);
 });
 
 test("stable promotion documents backup-based rollback and the delivered feature scope", () => {
   const docs = read("DOCS.md");
-  assert.ok(docs.includes("Stable **3.3.0**"));
+  assert.ok(docs.includes("Stable **3.5.1**"));
   assert.ok(docs.includes("Rollback requires the pre-upgrade Home Assistant backup"));
   assert.ok(docs.includes("/config/opencode/decisions.yaml"));
   assert.ok(docs.includes("2 MiB"));

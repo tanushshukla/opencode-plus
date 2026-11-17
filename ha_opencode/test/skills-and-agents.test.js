@@ -107,30 +107,11 @@ describe(`${CHANNEL} skills`, () => {
     }
   });
 
-  it("keeps the live help injection markers AGENTS.md deployment depends on", () => {
+  it("uses on-demand CLI discovery and the actual V2 workspace", () => {
     const agents = fs.readFileSync(path.join(MCP_DIR, "AGENTS.md"), "utf8");
-    for (const marker of [
-      "<!-- HAB_LIVE_HELP_START -->",
-      "<!-- HAB_LIVE_HELP_END -->",
-      "<!-- ZIGPORTER_LIVE_HELP_START -->",
-      "<!-- ZIGPORTER_LIVE_HELP_END -->",
-    ]) {
-      assert.ok(agents.includes(marker), `AGENTS.md lost ${marker}`);
-    }
-  });
-
-  it("distinguishes verified registry metadata edits from cascade renames in shipped guidance", () => {
-    for (const file of ["AGENTS.md", "INSTRUCTIONS.md", "MCP_PROFILE_FULL.md", "skills/home-assistant-zigbee-esphome/SKILL.md"]) {
-      const source = fs.readFileSync(path.join(MCP_DIR, file), "utf8");
-      assert.match(source, /1\.8\.0/);
-      assert.match(source, /entity.*update|entity\/device/);
-      assert.match(source, /no revision lock/);
-      assert.match(source, /unique_id/);
-      assert.match(source, /rewrites no references|does not rewrite references/);
-      assert.match(source, /zigporter/);
-      assert.match(source, /short_id/);
-      assert.doesNotMatch(source, /CLI has no `entity update` or `device update`/);
-    }
+    assert.doesNotMatch(agents, /LIVE_HELP|working directory is `\/homeassistant`/);
+    assert.match(agents, /isolated managed workspace/);
+    assert.match(agents, /args=\["schema"\]/);
   });
 
   it("documents the ESPHome troubleshooting and migration tools in shipped guidance", () => {

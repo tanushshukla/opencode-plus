@@ -1,6 +1,6 @@
 # Home Assistant OpenCode Rules
 
-You are working directly within a Home Assistant installation. Your working directory is `/homeassistant`, which is the live Home Assistant configuration directory.
+You are working directly within a Home Assistant installation. Its live configuration is mounted at `/homeassistant`. The server's working directory is an isolated managed workspace; use absolute `/homeassistant/...` paths for configuration work.
 
 ## CRITICAL: User Consent and Scope Rules
 
@@ -84,10 +84,10 @@ These contain internal Home Assistant state that:
 ## Environment Context
 
 - You are running inside the OpenCode app
-- The current directory (`/homeassistant`) contains the live Home Assistant configuration
+- `/homeassistant` contains the live Home Assistant configuration; it is not the server's working directory
 - Changes to YAML files here directly affect the Home Assistant instance
 - If add-on folder access is enabled, `/addons` and `/addon_configs` are available for Home Assistant add-on development. Treat `/addon_configs` as sensitive and only inspect or modify these folders when the user explicitly asks.
-- You may have access to MCP tools for interacting with Home Assistant (check with the user)
+- Inspect the offered tools or `get_agent_capabilities` to establish available integrations; do not ask the user to identify tools already exposed by the runtime
 
 ## Skills: where the detailed procedures live
 
@@ -198,8 +198,11 @@ Real-time interaction with the running instance:
 - `screenshot_url` — visual verification (requires the `screenshot_enabled` option)
 - `get_agent_capabilities`, `get_ha_llm_development_guide` — capability and native-LLM development information
 
-Which tools exist depends on the add-on's MCP tool profile. If a tool you expect
-is missing, the profile is reduced — say so instead of working around it.
+Which tools exist depends on enabled integrations, the tool profile and the
+current agent's permissions. With Code Mode enabled, discover tools through
+`search` and call them through `execute`, using the runtime's exact signatures.
+An absent direct tool is not evidence that an integration is disabled. If a tool
+remains unavailable, report the limitation rather than working around it.
 
 ### 3. hab CLI (Home Assistant Builder)
 
@@ -218,6 +221,17 @@ command's native compact schema; payload/output contracts and schema IDs are ret
 Load one `guide` topic when useful. Use specific filters and
 `--brief`/`--count`/`--limit` when supported. Schema side-effect labels and `--plan`
 are advisory, not proof of permission, a live diff or complete validation.
+hab 1.8.0's entity/device/area/floor/label `update --plan` reads live metadata;
+review `changes` before approval. Omitted fields stay; empty values clear supported
+overrides; labels/aliases replace collections. Registry plans have no revision lock.
+Check `saved` and `verified`; metadata verification does not prove runtime activation.
+`entity update --entity-id` preserves `unique_id` but rewrites no references and
+does not verify history/statistics migration. Use zigporter for cascade renames,
+with template review. Load `guide registry` for metadata edits.
+Copy `short_id` from discovery only for supported hab selectors; never shorten
+entity IDs/slugs or pass prefixes to other MCP tools. Inspect `metadata.resolved_ids`;
+ambiguous prefixes need fresh discovery, not guessing. Scoped IDs need the same
+scope (calendar events also need the same start/end window).
 For dashboard fields, prefer `dashboard patch`: preview the diff with `--plan`,
 then apply with its unchanged `base_revision` as `--if-match`. Inspect `status`,
 `saved`, `verified` (or `error.details.result`); conflicts require a fresh review.
@@ -227,30 +241,23 @@ Read before changing and read back afterwards. Inspect nested `success`, `error`
 retrying. Large-output artifacts contain the CLI envelope: configuration is under
 its `data`, not the whole envelope. Never reconstruct from a truncated preview.
 
-<!-- HAB_LIVE_HELP_START -->
-*(Live hab command reference will be injected here at container startup)*
-<!-- HAB_LIVE_HELP_END -->
-
 ### 4. zigporter CLI (Zigbee toolkit)
 
-In the V2 beta, use the `zigporter_run` MCP tool for these commands. Its sidecar
+Use the `zigporter_run` MCP tool for these commands. Its sidecar
 supplies credentials; the agent shell intentionally does not inherit them.
 Do not run setup or create credential files. If the current profile does not
 expose the tool, report that limitation and use available read-only MCP tools.
 
 Zigbee device management, including **cascade rename** workflows across
 automations, scripts, scenes and Lovelace dashboards; inspect the dry run and
-template-reference limitations. `hab entity rename` changes a friendly name,
-not an entity ID. Also handles device
+template-reference limitations. `hab entity rename` changes a friendly name;
+`hab entity update --entity-id` changes only the registry ID, not its references.
+Also handles device
 inspection across ZHA/Z2M/HA, stale-device cleanup, and mesh visualization.
 
 Dry-run is the default for renames — always preview before `--apply`. The
 `migrate` command is interactive and must NOT be used by an agent. Load
 `home-assistant-zigbee-esphome` before any of this work.
-
-<!-- ZIGPORTER_LIVE_HELP_START -->
-*(Live zigporter command reference will be injected here at container startup)*
-<!-- ZIGPORTER_LIVE_HELP_END -->
 
 ### Choosing between them
 
@@ -267,14 +274,14 @@ Dry-run is the default for renames — always preview before `--apply`. The
 | Device firmware updates | `watch_firmware_update` |
 | Core/OS/Supervisor updates | `get_available_updates`, `update_component` |
 
+### Internal directories
+
 For bounded direct-file changes, preview `patch_config_safe` (dry-run by default),
 review the exact replacements, obtain approval, then apply the same edits with
 both `expected_revision` and `expected_candidate` from that preview. Ambiguous or
 overlapping matches are refused. Preview is not full HA validation; the shared
 writer checks HA after saving and attempts guarded recovery on failure. Neither
 write tool reloads HA. Preserve separately approved reload and verification steps.
-
-### Internal directories
 
 Home Assistant manages internal state in `.storage/` and friends. They are not
 designed for direct access, have no stable schema, and can corrupt the

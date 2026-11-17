@@ -1,5 +1,42 @@
 # Changelog
 
+## 3.5.2b0 (Unreleased)
+
+- Begin the next beta series from stable **3.5.1** (`v3.5.1`), including the complete reconciled runtime and compatibility fixes.
+- Shared runtime/build files match stable, with only explicitly checked channel identity differences. No new functional changes have been selected yet.
+
+## 3.5.1b4
+
+- **Reconcile beta with stable 3.5.0** — combine the 3.5.1 beta improvements with fixes already shipped in stable, while retaining beta's separate identity and storage.
+- **Restore stable's Zigporter compatibility fixes** — include the reviewed Zigporter 1.4.2 overlay for registry identifier handling and passive Zigbee2MQTT diagnostics.
+- **Preserve project metadata during upgrades** — retain project placement and archive state in the private V2 upgrade copy, with coverage for the previous stable 2.1.4 runtime. Original migration inputs remain preserved.
+- **Carry forward HAB registry fixes** — invalidate state and registry caches around mutating HAB commands, prevent stale in-flight reads from repopulating cleared caches, and include stable's HAB 1.8.0 guidance and qualification fixtures.
+- **Expand baseline regression coverage** — retain stable's OpenChamber trust checks and add a check requiring review of shared-code differences between channels.
+
+## 3.5.1b3
+
+- **Correct context inspection** — `ha-context status` and `ha-context show` now use the active V2 global instructions and explain that the packaged rules are staged at startup. Custom rules belong in `/homeassistant/AGENTS.local.md`.
+- **Remove unused legacy metadata** — simplify beta's channel helper by removing obsolete instruction-path and ownership variables. Direct upgrades from V1, migration support, retained history and user customizations remain supported.
+
+## 3.5.1b2
+
+- **Isolate stable and beta browser state** — preserve the beta channel identity when starting the Ingress proxy. Switching between stable and beta no longer shares the browser's saved workspace, conversation, model and draft selections, which could open a directory belonging to the other app and show “Workspace unavailable.”
+- **Preserve existing conversations and settings** — existing browser entries are retained. Beta now uses its own namespace; a previously saved invalid server-side workspace may still need a one-time **Open /homeassistant** selection.
+
+## 3.5.1b1
+
+- **Prevent raced cache deletion** — live legacy-cache commands now only quarantine reviewed data; the old `clean-cache` name remains a compatibility alias. Neither command deletes data while the app is running.
+- **Reclaim old quarantines safely at startup** — recorded, unchanged cache quarantines expire after seven days at the next verified cold startup, before services launch. Changed, unrecorded, linked or unverifiable data is preserved. Startup logs report removals and skipped candidates; original history, accounts and active V2 data are excluded.
+- **Correct HAB guidance** — update the pinned-version instructions to HAB **1.8.0** and remove stale version claims from tool descriptions and rejection messages. The read-only allowlist and its historical review provenance remain intact.
+
+## 3.5.1b0
+
+- **Consolidate the V2 runtime configuration** — use native update settings throughout, validate the complete generated configuration against the pinned V2 schema, and add native hard-deny policies alongside agent permissions. Preserve terminal preferences when upgrading the app-owned client configuration.
+- **Add experimental MCP Code Mode** — opt into V2 tool discovery and execution for bundled and native Home Assistant tools. Direct tools remain the default; capability reporting and Supervisor apply stay direct. Read-only restrictions and native apply approval remain enforced. External MCP servers can select `codemode` individually and use native `disabled` settings.
+- **Unify Home Assistant instructions** — use one packaged global instruction source, correct the workspace guidance, and replace startup help-text injection with on-demand CLI discovery. Retire only unchanged, app-owned beta instruction copies; preserve customized files and shared stable instructions.
+- **Inspect retained legacy data** — add `opencode legacy-data inspect` and revision-reviewed, cache-only cleanup. Original history, accounts, custom assets and user-installed packages remain preserved; late V1 upgrades and V2-to-V2 migrations remain supported.
+- Refresh obsolete rollback/read-only comments and upstream documentation links. Runtime pins remain OpenCode **2.3.0**, OpenChamber **2.7.2** and HAB **1.8.0**.
+
 ## 3.5.0b5
 
 - **Improve Supervisor app review ([#199](https://github.com/magnusoverli/opencode/issues/199))** — show app display names, allow inspection and non-applying previews from all profiles and the managed read-only agent, and bind bounded before/after diffs to reviewed plans. Distinguish unset from withheld options; reveal only schema-constrained standard `log_level` strings. Apply still requires the full profile, an apply-capable agent and native permission approval.

@@ -3,7 +3,201 @@
 Your Home Assistant configuration assistant, powered by OpenCode V2. Use the
 terminal or OpenChamber web workspace with one shared, app-managed backend.
 
-## Upgrading to 3.3.4 — replaces withdrawn 3.3.3
+## Upgrading to 3.5.1
+
+Stable **3.5.1** promotes **3.5.1b4** while retaining stable's identity, storage,
+Zigporter compatibility overlay, HAB registry-cache handling and project-upgrade
+preservation. Runtime pins remain OpenCode **2.3.0**, OpenChamber **2.7.2** and
+HAB **1.8.0**.
+
+Update the existing stable app to preserve its history and accounts. Installing
+stable beside beta does not transfer beta's conversations or sign-ins. Back up
+the app before updating; **Rollback requires the pre-upgrade Home Assistant backup**.
+Direct V1 upgrades, original migration inputs and user customizations remain
+supported.
+
+### V2 instructions and context inspection
+
+The packaged `/opt/ha-mcp-server/AGENTS.md` is staged at startup as the active
+global `/run/opencode-v2/config/opencode/AGENTS.md`. `ha-context status` and
+`ha-context show` report this source. The server works in an isolated managed
+workspace; configuration work uses absolute `/homeassistant/...` paths.
+
+Startup no longer deploys or rewrites `/homeassistant/AGENTS.md`, or injects
+complete HAB/Zigporter help listings. Historical files and ownership markers are
+preserved for review. Put wanted custom rules in `/homeassistant/AGENTS.local.md`,
+which the context plugin loads alongside the dynamic briefing and decision digest.
+Active skills, agents and MCP assets under `/data/.config/opencode` remain in use.
+
+### Experimental MCP Code Mode
+
+The `mcp_code_mode` option is **off by default**. Enable it to use V2 `search` and
+`execute` discovery for bundled and native HA tools; app-option changes require
+an app restart. External MCP definitions can choose `"codemode": true` individually
+and use native `"disabled"` settings; legacy `enabled` remains accepted unless
+the two settings contradict each other.
+
+Capability reporting and Supervisor apply remain direct because pinned V2
+per-tool hooks do not observe nested Code Mode calls. Read-only sessions deny
+`execute` and receive their permitted tools directly. Native hard-deny policies
+supplement approval rules; credential/process isolation remains enforced.
+Automated catalogue checks are not real-model accuracy or performance benchmarks.
+
+### Retained data and cache reclamation
+
+From the app's root shell, run `opencode legacy-data inspect` for a bounded
+metadata inventory. Original history/accounts, old client state, active
+customizations and user packages are retained. Unsafe or oversized inventories
+are reported as unverified.
+
+Only `/data/.cache/opencode` is eligible for explicit quarantine:
+
+```sh
+opencode legacy-data quarantine-cache --review <cache-revision-from-inspect>
+```
+
+The compatibility name `clean-cache` also only quarantines while running.
+Recorded, unchanged quarantines expire after seven days at the next verified
+cold startup, before services launch. Changed, unrecorded, linked or unverifiable
+data is preserved; interrupted removal disarms its receipt. No user history or
+active V2 state is reclaimed by this workflow.
+
+### Stable/beta browser isolation
+
+The actual Ingress launchers now preserve channel identity: stable uses
+`ha-opencode-stable` and beta uses `ha-opencode-beta`. Existing browser entries
+and conversation records are retained. If a foreign workspace selection was
+already saved, choose **Open /homeassistant** once. A historical conversation
+whose original directory is genuinely missing can still show the recovery screen.
+
+## Upgrading to 3.5.0
+
+Stable **3.5.0** promotes **3.5.0b5**, with OpenCode CLI/plugin **2.3.0**,
+OpenChamber **2.7.2**, Bun **1.4.4**, HAB **1.8.0** and companion **0.1.0b8**.
+OpenChamber is built from immutable commit
+`1a151518c95cc5ff3578bab593d2f96862ff3bb8` with the reviewed security lock.
+Stable retains its channel identity, private state, Zigporter compatibility
+overlay, HAB cache invalidation and project-upgrade preservation.
+
+**Back up the stable app, its options and configuration before updating.**
+Update the existing stable app; installing stable beside beta does not transfer
+beta's conversations or sign-ins. Guarded copy-on-write conversion includes the
+previous stable OpenCode **2.1.4** generation. Preserve migration artifacts if
+startup stops. **Rollback requires the pre-upgrade Home Assistant backup**;
+never downgrade the runtime against upgraded data.
+
+Installed beta acceptance confirmed safe-patch core transactions and the
+Supervisor inspection → read-only preview → Build approval/apply → restoration
+workflow. Native permission prompts were confirmed by the operator. These
+checks do not establish installed stable upgrade/rollback, account entitlement
+to every displayed model, or physical native-client pairing.
+
+### Reviewed YAML transactions
+
+Choose the editing route by resource ownership. Editor-managed automations,
+scripts and scenes use their supported editor API with a complete resource,
+backup, approval, concurrency checks and read-back/activation verification.
+Consent must cover automatic reloads caused by editor saves; do not issue an
+additional domain reload blindly.
+
+Direct YAML files use `write_config_safe` or `patch_config_safe`:
+
+| Tool | Preview | Approved apply |
+| --- | --- | --- |
+| `write_config_safe` | Read the complete file, supply complete proposed content and `dry_run: true`. Retain Source Revision. | Supply the same content and `expected_revision`; a reviewed new file uses `missing`. |
+| `patch_config_safe` | Supply `file_path` and `edits: [{old_text, new_text}]`; dry-run is the default. Review the exact replacements, source lines, byte counts and source/candidate hashes. | Supply the same edits, `dry_run: false`, `expected_revision` and `expected_candidate`. |
+
+Patches require unique, non-overlapping matches in the original file. They
+preserve unrelated bytes, comments and formatting. Up to 20 edits are supported,
+each with at most 16 KiB combined old/new UTF-8 text, within the existing 1 MiB
+YAML preflight limit. Secrets and hidden/internal paths remain refused.
+Both tools retain content-loss checks.
+
+Preview performs local preflight, not full HA validation of staged content.
+Authoritative HA validation runs **after** atomic replacement. Neither tool
+reloads HA. Conflicts require fresh inspection, preview and approval.
+Unique 0600 recovery copies and journals live under
+`/homeassistant/.opencode-safe-write-backups/`; they may contain sensitive data.
+Recovery storage stops at 256 entries or 256 MiB instead of deleting old copies.
+Cooperating writers share a lock; external editors are outside an atomic CAS.
+Only `restored` proves verified restoration. `recovery_required` or an uncertain
+outcome requires local inspection; never delete `.opencode-safe-write.lock`
+merely to retry.
+
+### Supervisor app review and capability reporting
+
+| Tool | Availability and behavior |
+| --- | --- |
+| `supervisor_app_inspect` | All profiles, including the managed read-only agent. Returns app name, slug, state, version, opaque revision and redacted options. |
+| `supervisor_app_preview` | All profiles. Validates without saving and creates a five-minute in-memory plan. Returns a field-level before/after diff bound to `review`; lifecycle previews identify current/expected state. |
+| `supervisor_app_apply` | Full profile and an apply-capable agent, normally Build. Requires native permission approval and the exact preview ID/review; rechecks the source and verifies readback. |
+
+`option_states` distinguishes visible, withheld and unset. Only `log_level`
+strings constrained by a Supervisor select schema containing exclusively
+standard log levels are visible. Free-form strings (including `ignore_pattern`),
+other string enumerations, arrays and credential values stay withheld.
+Inspection state entries are capped at 256 and flag truncation. Proposals
+exceeding 256 changed fields are refused. Credential edits, arrays and deletions
+require manual app configuration.
+
+A preview grants no apply permission. Switch from the genuine managed read-only
+agent to Build within five minutes to use the same reviewed plan. Plans are
+single-use and disappear on MCP-server/app restart, including a restart needed
+to change profiles. Saving options does not restart the target app. Current-app
+changes are blocked. Supervisor has no atomic conditional-save API; uncertain
+outcomes require inspection, not blind retries or automatic rollback.
+
+`get_agent_capabilities.mcp` is the configured server catalogue.
+`mcp.current_agent` is a fresh runtime-observed offered-tool snapshot when
+available, otherwise `unknown`. Its agent ID, timestamp and separate bundled/
+native lists do not prove per-call authorization or a permission-popup click.
+The full profile also offers separately permissioned `hab_run_read_only` for
+reviewed dashboard/helper reads; this does not broaden the managed read-only
+agent's HAB permissions.
+
+### Migration diagnostics and connection recovery
+
+The migration path preserves compaction summaries and source session placement
+before exact validation, including missing directories/projects. From the app's
+own root shell, `python3 /usr/local/bin/opencode-v2-migrate.py diagnose` reports
+bounded path/type/ownership metadata without opening databases or changing state.
+For `unexpected_migration_work` ([#202](https://github.com/magnusoverli/opencode/issues/202))
+or `unsafe_path_type` ([#207](https://github.com/magnusoverli/opencode/issues/207)),
+preserve the affected artifacts and share bounded diagnostics. Neither has a
+universal safe cleanup; a fresh installation beside stable does not test the
+affected history.
+
+Terminal WebSocket failures retry with bounded backoff while retaining tmux
+sessions. Browser preferences remain separated between stable and beta.
+ChatGPT sign-in waits for plugin activation, offers a direct authorization link,
+and supports `/api/accounts/authorize` and legacy `/oauth/authorize` callback
+handoffs. Authorization success does not establish model entitlement.
+
+### LAN device pairing
+
+Behind the existing authenticated HTTPS/trusted-proxy LAN frontend, an
+administrator can request `POST /api/pair`. A single-use code expires after five
+minutes; native clients redeem `GET /auth/connect/<code>` and authenticate with
+username `opencode` and the returned device token. With `Accept: text/html`,
+redemption instead redirects to `/api/info` and sets a Secure, HttpOnly,
+SameSite=Lax `opencode_session` cookie. Bearer tokens and query-string tokens
+are not supported for this interface.
+
+Device credentials expire after 30 days. Administrator-authenticated
+`GET /api/lan/devices` lists them and `DELETE /api/lan/devices/<id>` revokes one.
+App restart or LAN-password rotation revokes all device credentials. Pairing
+does not confer multi-user isolation; native OpenChamber pairing is separate.
+Do not publish pairing codes or tokens.
+
+### HA 2026.11 compatibility
+
+The companion is qualified against HA 2026.10 and 2026.11.1 and uses the
+**AI tools** wording. HA's MCP Server read-only setting applies to the configured
+`/api/mcp` endpoint, not independently selected `/api/mcp/<ID>` endpoints.
+Do not switch endpoints to bypass a rejected call. Restart Home Assistant Core
+after a companion update when instructed; the app does not restart Core for you.
+
+## Previous upgrade: 3.3.4 — replaces withdrawn 3.3.3
 
 **Back up the stable app, its options and configuration before updating.**
 3.3.4 fixes `v2_upgrade_records_changed` when the native converter's startup
@@ -420,7 +614,7 @@ Persistent CLI preferences cannot enable custom TUI plugins.
 ## Desktop Browser Tools versus HA Screenshots
 
 OpenCode's model-facing `browser` tools require a browser attached by the
-OpenCode desktop app, as described in the [V2 Tools guide](https://opencode.ai/v2/docs/tools).
+OpenCode desktop app, as described in the [V2 Tools guide](https://opencode.ai/docs/tools).
 Opening OpenChamber through Ingress does not attach that desktop browser. The
 packaged Chromium used by the optional HA `screenshot_url` tool is a separate
 capability. Desktop-browser attachment to the app's managed server is not
@@ -456,7 +650,9 @@ The skills are deployed to `/data/.config/opencode/skills/`, where OpenCode disc
 
 The bundled `home-assistant-configuration` skill guides the agent through locating
 the automation source (including custom includes/packages), preserving existing
-automations and IDs, prevalidating the draft, and saving with `write_config_safe`.
+automations and IDs, and selecting the route by resource ownership. Editor-managed
+resources use supported editor APIs; direct YAML files use `write_config_safe`
+or `patch_config_safe` with the reviewed revision guards described above.
 You can ask: “Use the configuration skill to edit this automation, then explain
 the reload and verification steps.”
 
@@ -1208,7 +1404,7 @@ Do not paste keys into chat. Native `/connect` account setup remains available.
 ### Third-party plugins (Beta)
 
 **Enable third-party plugins** (`custom_plugins_enabled`) is **off by default**.
-This is a thin opt-in to [upstream OpenCode V2 plugin loading](https://opencode.ai/v2/docs/plugins),
+This is a thin opt-in to [upstream OpenCode V2 plugin loading](https://opencode.ai/docs/plugins),
 not an add-on plugin manager or a promise of compatibility with any particular
 plugin, including Magic Context. The add-on does not curate packages, install
 plugins itself, or implement an updater.
@@ -1404,6 +1600,9 @@ remove successfully registered external servers.
 
 ### Web search selection
 
+See the independent remote-inference example below; search MCP configuration
+does not configure the model endpoint.
+
 Set a search provider in **Custom OpenCode configuration** and configure its key
 privately in **Environment variables**, then restart the app:
 
@@ -1427,6 +1626,47 @@ retains native provider selection. This changes search selection only; managed
 permissions and the read-only agent's restrictions still apply. Provider-specific
 URLs or keys inside `websearch` are not supported. A successful web fetch is not
 evidence that search authentication, cancellation or upstream service access works.
+
+### Remote ProsperoAI example (#200)
+
+Start with inference only in `opencode_config`, replacing the documentation IP
+and model ID with your server's values:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "prosperoai/qwen3.8-9b-distill-q4-k-m.gguf",
+  "providers": {
+    "prosperoai": {
+      "name": "ProsperoAI",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "http://192.0.2.50:11434/v1",
+        "apiKey": "{env:PROSPEROAI_API_KEY}"
+      },
+      "models": {
+        "qwen3.8-9b-distill-q4-k-m.gguf": {
+          "name": "Qwen 3.8 9B",
+          "limit": { "context": 16384, "output": 2048 },
+          "capabilities": { "tools": true }
+        }
+      }
+    }
+  }
+}
+```
+
+Set the key privately through `env_vars` if required; omit `apiKey` when the
+endpoint genuinely accepts unauthenticated requests. HTTP does not encrypt
+prompts or credentials; use a trusted network or HTTPS. Restart the app after
+saving options, select the exact model, then verify text and read-only tool
+calling separately. Declaring tool capability cannot add server/model support.
+Match context limits to the actual server and consider compact tools.
+
+Do not add arbitrary global permission overrides. Add optional search MCP
+separately through `external_mcp_config` after inference works. A local MCP
+command executes inside this app, not on the remote model host. The recipe is
+schema-tested; the reporter's physical endpoint is not independently qualified.
 
 ## Startup Hooks (Beta)
 

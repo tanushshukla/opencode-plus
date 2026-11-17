@@ -1,6 +1,6 @@
 # Home Assistant OpenCode Rules
 
-You are working directly within a Home Assistant installation. Your working directory is `/homeassistant`, which is the live Home Assistant configuration directory.
+You are working directly within a Home Assistant installation. Its live configuration is mounted at `/homeassistant`. The server's working directory is an isolated managed workspace; use absolute `/homeassistant/...` paths for configuration work.
 
 ## CRITICAL: User Consent and Scope Rules
 
@@ -84,10 +84,10 @@ These contain internal Home Assistant state that:
 ## Environment Context
 
 - You are running inside the OpenCode app
-- The current directory (`/homeassistant`) contains the live Home Assistant configuration
+- `/homeassistant` contains the live Home Assistant configuration; it is not the server's working directory
 - Changes to YAML files here directly affect the Home Assistant instance
 - If add-on folder access is enabled, `/addons` and `/addon_configs` are available for Home Assistant add-on development. Treat `/addon_configs` as sensitive and only inspect or modify these folders when the user explicitly asks.
-- You may have access to MCP tools for interacting with Home Assistant (check with the user)
+- Inspect the offered tools or `get_agent_capabilities` to establish available integrations; do not ask the user to identify tools already exposed by the runtime
 
 ## Skills: where the detailed procedures live
 
@@ -167,10 +167,18 @@ dashboards. These files are designed for editing. Load
 `home-assistant-configuration` before changing one — it carries the mandatory
 style guide, the safe-write path, and the reload/restart rules.
 
-Automation edits are complete only after the approved safe write, approved
-`automation.reload` via `call_service`, and read-only load verification. Report
-saved/reloaded/verified separately. If reload is unapproved or unavailable in the
-current tool profile, report it as pending; never bypass the profile via shell.
+Choose the editing route by resource ownership. Editor-managed automations,
+scripts and scenes use their supported editor API through advertised `hab_run`
+commands, preserving the complete individual resource. Direct YAML-file edits,
+including packages/includes, use complete-file `write_config_safe` or reviewed
+exact-text `patch_config_safe` for bounded changes to existing YAML.
+Both routes require approval, backup, validation, concurrency checks, unrelated
+content preservation and read-back/activation verification. Obtain consent for
+automatic reloads caused by editor saves; verify native activation instead of
+blindly adding a domain-wide reload. Direct automation YAML writes require the
+approved `automation.reload` via `call_service`. Report saved/reloaded/verified
+separately. If the required tool or reload approval is unavailable, report the
+pending step; never bypass the profile via shell or raw APIs.
 
 ### 2. MCP tools (runtime API)
 
@@ -181,7 +189,7 @@ Real-time interaction with the running instance:
 - `get_history`, `get_logbook`, `get_calendar_events` — historical and calendar data; supplied timestamps must include `Z` or a UTC offset. For every recorded value, use `get_history` with `response_format: "values"`, then pass its exact `meta.continuation` object until `has_more` is false; `numeric_summary` covers the complete response.
 - `get_devices`, `get_areas` — device and area registry
 - `set_device_area`, `set_entity_area` — approved room assignments through Home Assistant's registry API (full profile; use exact IDs from read tools)
-- `write_config_safe`, `validate_config`, `check_config_syntax` — safe config writing with validation, content protection and backup
+- `write_config_safe`, `patch_config_safe`, `validate_config`, `check_config_syntax` — safe config writing with validation, content protection and backup
 - `get_integration_docs`, `get_breaking_changes` — current syntax, before writing any integration configuration
 - `diagnose_entity`, `get_error_log`, `detect_anomalies`, `get_suggestions` — diagnosis
 - `get_supervisor_health`, `get_supervisor_resolution`, `get_backup_posture`, `get_store_audit`, `get_supervisor_metrics`, `get_support_logs` — bounded, credential-redacted system evidence
@@ -190,8 +198,11 @@ Real-time interaction with the running instance:
 - `screenshot_url` — visual verification (requires the `screenshot_enabled` option)
 - `get_agent_capabilities`, `get_ha_llm_development_guide` — capability and native-LLM development information
 
-Which tools exist depends on the add-on's MCP tool profile. If a tool you expect
-is missing, the profile is reduced — say so instead of working around it.
+Which tools exist depends on enabled integrations, the tool profile and the
+current agent's permissions. With Code Mode enabled, discover tools through
+`search` and call them through `execute`, using the runtime's exact signatures.
+An absent direct tool is not evidence that an integration is disabled. If a tool
+remains unavailable, report the limitation rather than working around it.
 
 ### 3. hab CLI (Home Assistant Builder)
 
@@ -230,13 +241,9 @@ Read before changing and read back afterwards. Inspect nested `success`, `error`
 retrying. Large-output artifacts contain the CLI envelope: configuration is under
 its `data`, not the whole envelope. Never reconstruct from a truncated preview.
 
-<!-- HAB_LIVE_HELP_START -->
-*(Live hab command reference will be injected here at container startup)*
-<!-- HAB_LIVE_HELP_END -->
-
 ### 4. zigporter CLI (Zigbee toolkit)
 
-In this V2 app, use the `zigporter_run` MCP tool for these commands. Its sidecar
+Use the `zigporter_run` MCP tool for these commands. Its sidecar
 supplies credentials; the agent shell intentionally does not inherit them.
 Do not run setup or create credential files. If the current profile does not
 expose the tool, report that limitation and use available read-only MCP tools.
@@ -252,15 +259,12 @@ Dry-run is the default for renames — always preview before `--apply`. The
 `migrate` command is interactive and must NOT be used by an agent. Load
 `home-assistant-zigbee-esphome` before any of this work.
 
-<!-- ZIGPORTER_LIVE_HELP_START -->
-*(Live zigporter command reference will be injected here at container startup)*
-<!-- ZIGPORTER_LIVE_HELP_END -->
-
 ### Choosing between them
 
 | Task | Use |
 |---|---|
-| Create/edit automations, scripts, scenes, templates | YAML + `write_config_safe` |
+| Editor-managed automations, scripts, scenes | Supported editor API via advertised `hab_run` commands; complete individual resource |
+| Direct YAML files, packages/includes, templates | Complete-file `write_config_safe` or reviewed exact-text `patch_config_safe` |
 | Check current state, control a device | MCP (`get_home_context`, `call_service`) |
 | Troubleshoot | MCP (`diagnose_entity`, `get_error_log`, `get_supervisor_health`) |
 | Dashboards, areas, helpers, backups, blueprints, people | `hab` |
@@ -271,6 +275,13 @@ Dry-run is the default for renames — always preview before `--apply`. The
 | Core/OS/Supervisor updates | `get_available_updates`, `update_component` |
 
 ### Internal directories
+
+For bounded direct-file changes, preview `patch_config_safe` (dry-run by default),
+review the exact replacements, obtain approval, then apply the same edits with
+both `expected_revision` and `expected_candidate` from that preview. Ambiguous or
+overlapping matches are refused. Preview is not full HA validation; the shared
+writer checks HA after saving and attempts guarded recovery on failure. Neither
+write tool reloads HA. Preserve separately approved reload and verification steps.
 
 Home Assistant manages internal state in `.storage/` and friends. They are not
 designed for direct access, have no stable schema, and can corrupt the

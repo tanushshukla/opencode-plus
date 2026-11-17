@@ -10,7 +10,7 @@ FROM node:${NODE_VERSION}-trixie-slim AS node-runtime
 # installed. Build with the reviewed security lock, on the target's native runner.
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS openchamber-bun
 FROM node-runtime AS openchamber-builder
-ARG OPENCHAMBER_REVISION=c4919abc1e7a0a3beeaa126666487806bf79cfe0
+ARG OPENCHAMBER_REVISION=1a151518c95cc5ff3578bab593d2f96862ff3bb8
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git openssh-client python3 g++ make \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=openchamber-bun /usr/local/bin/bun /usr/local/bin/bun
@@ -25,8 +25,6 @@ COPY rootfs/opt/openchamber/patch-security-dependencies.cjs rootfs/opt/openchamb
 RUN node /tmp/patch-security-dependencies.cjs /opt/openchamber-preview
 COPY rootfs/opt/openchamber/security.bun.lock /opt/openchamber-preview/bun.lock
 COPY rootfs/opt/openchamber/patch-git-environment.cjs /tmp/patch-git-environment.cjs
-COPY rootfs/opt/openchamber/patch-git-credentials.cjs /tmp/patch-git-credentials.cjs
-RUN node /tmp/patch-git-credentials.cjs /opt/openchamber-preview
 # Patch translated guidance in source so the built frontend uses app-owned updates.
 COPY rootfs/opt/openchamber/patch-app-updates.cjs /tmp/patch-app-updates.cjs
 RUN node /tmp/patch-app-updates.cjs /opt/openchamber-preview
@@ -104,7 +102,6 @@ RUN case "${BUILD_ARCH}" in amd64|aarch64) ;; *) echo "Unsupported BUILD_ARCH: $
 FROM $BUILD_FROM AS runtime
 
 # Build arguments
-ARG BUILD_VERSION
 ARG BUILD_ARCH
 ARG NODE_VERSION
 # Release-channel identity for paths shared through /homeassistant. Stable and
@@ -113,8 +110,8 @@ ARG NODE_VERSION
 ARG ADDON_CHANNEL=stable
 ARG TTYD_VERSION=1.7.7
 # One pinned V2 runtime and its matching plugin API. No V1 runtime is installed.
-ARG OPENCODE_V2_VERSION=2.1.4
-ARG OPENCHAMBER_VERSION=2.5.2
+ARG OPENCODE_V2_VERSION=2.3.0
+ARG OPENCHAMBER_VERSION=2.7.2
 ARG TINFOIL_VERSION=1.2.1
 ARG TSX_VERSION=4.23.15
 ARG YQ_VERSION=v4.54.1
@@ -383,6 +380,11 @@ RUN set -e; \
 # injection on both supported architectures. It is not part of ordinary local image builds;
 # the Supervisor devcontainer separately covers the shipped s6 service graph.
 FROM runtime AS boundary-test
+RUN --network=none --mount=type=bind,source=test/fixtures/opencode-v2-legacy-data.py,target=/tmp/legacy/test/fixtures/opencode-v2-legacy-data.py,readonly \
+    ln -s / /tmp/legacy/rootfs \
+    && timeout --signal=TERM --kill-after=5s 30s \
+        python3 -B /tmp/legacy/test/fixtures/opencode-v2-legacy-data.py -v
+
 RUN --network=none --mount=type=bind,source=test/fixtures/opencode-v2-compaction.py,target=/tmp/compaction/test/fixtures/opencode-v2-compaction.py,readonly \
     ln -s / /tmp/compaction/rootfs \
     && timeout --signal=TERM --kill-after=10s 120s \
@@ -399,6 +401,9 @@ RUN --network=none --mount=type=bind,source=test/hab-cli-fixture.mjs,target=/tmp
 
 RUN --network=none --mount=type=bind,source=test/v2-openchamber-browser.mjs,target=/tmp/v2-openchamber-browser.mjs,readonly \
     timeout --signal=TERM --kill-after=10s 180s node /tmp/v2-openchamber-browser.mjs
+
+RUN --network=none --mount=type=bind,source=test/ttyd-reconnect-browser.mjs,target=/tmp/ttyd-reconnect-browser.mjs,readonly \
+    timeout --signal=TERM --kill-after=10s 60s node /tmp/ttyd-reconnect-browser.mjs
 
 RUN --mount=type=bind,source=test/v2-boundary-fixture.sh,target=/tmp/v2-boundary-fixture.sh,readonly \
     --mount=type=bind,source=test/v2-caller-secret-plugin.js,target=/tmp/v2-caller-secret-plugin.js,readonly \
@@ -437,7 +442,9 @@ WORKDIR /homeassistant
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -fsS --max-time 5 http://127.0.0.1:8099/ > /dev/null && opencode status > /dev/null || exit 1
 
+# Keep release-only metadata out of shared runtime and boundary-test cache keys.
 # Labels for Home Assistant
+ARG BUILD_VERSION
 LABEL \
     io.hass.name="OpenCode" \
     io.hass.description="AI coding agent for editing Home Assistant configuration" \
