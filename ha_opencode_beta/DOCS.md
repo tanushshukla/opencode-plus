@@ -2,12 +2,11 @@
 
 This is the **beta channel** for the OpenCode add-on. It contains experimental features and fixes that are being validated before inclusion in the stable release.
 
-The next development target is **3.5.2b0**, based on released stable **3.5.1**.
-It is not published yet; the currently available beta remains **3.5.1b4**.
-See [the next-release baseline](NEXT_RELEASE.md) for source identity and the
-release preparation steps.
+Beta **3.5.2b0** is based on stable **3.5.1**. To connect the official OpenCode
+desktop app to the LAN API, enable `server_desktop_app` as described under
+[LAN Server Mode](#lan-server-mode-beta). The option is off by default.
 
-Beta `3.5.1b4` pins OpenCode `2.3.0`, OpenChamber `2.7.2`, and HAB `1.8.0`, retaining
+Beta `3.5.2b0` pins OpenCode `2.3.0`, OpenChamber `2.7.2`, and HAB `1.8.0`, retaining
 stable's desktop/mobile workspace recovery and live PPQ
 private-model discovery. It now includes stable 3.5.0's Zigporter compatibility,
 HAB registry-cache and project-upgrade fixes. Beta keeps its own app identity and persistent storage; installing
@@ -1175,6 +1174,7 @@ permissions as Ingress, not separate users or a read-only account.
 | `lan_trusted_proxies` | Exact IP addresses of the nearest reverse proxy as seen by the app |
 | `server_public_url` | Public HTTPS origin, for example `https://code.example.com` |
 | `cors_origins` | Additional exact HTTPS browser origins, if needed; no wildcard |
+| `server_desktop_app` | Optional: allow the OpenCode desktop app (see below) |
 
 Map `4096/tcp` for your reverse proxy. The proxy must terminate HTTPS, preserve
 the public `Host`, overwrite `X-Forwarded-Proto` with `https`, and overwrite
@@ -1189,6 +1189,14 @@ in compatible remote V2 clients. Keep the password in the client's private
 credential settings, not a URL or command argument. The app's internal backend
 credential is never distributed. Browser preflight does not authorize API calls;
 every actual API request still needs authentication.
+
+The official OpenCode desktop app runs its interface at the origin `oc://renderer`
+and sends a CORS preflight before every API call. `cors_origins` accepts HTTPS
+origins only, so enable `server_desktop_app` to allow exactly that origin on the
+API frontend, then add `server_public_url` as a server in the app. The option
+only affects CORS: each actual request still needs the LAN password or a paired
+device token, other origins remain refused, and it has no effect on the
+OpenChamber frontend.
 
 Compatible V2 clients use `/api/info` for server health. A client requesting
 `/global/health` needs its exact build/protocol checked: allowing that path alone

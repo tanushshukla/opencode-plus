@@ -1,7 +1,7 @@
 ---
 name: "OpenCode+ Beta"
 description: "Beta channel for OpenCode - AI coding agent for Home Assistant. May contain experimental features."
-version: "3.5.1b4"
+version: "3.5.2b0"
 slug: "ha_opencode_beta"
 image: "ghcr.io/tanushshukla/ha_opencode_beta"
 url: "https://github.com/tanushshukla/opencode-plus"
@@ -136,6 +136,8 @@ options:
   openchamber_public_url: ""
   # Additional exact HTTPS browser origins for the API frontend.
   cors_origins: []
+  # Let the OpenCode desktop app connect to the API frontend.
+  server_desktop_app: false
   # Let OpenChamber desktop/mobile apps sign in to the OpenChamber LAN UI.
   openchamber_lan_native_apps: false
   # Relay hosting for the managed OpenChamber instance. When enabled, OpenChamber
@@ -223,6 +225,7 @@ schema:
   openchamber_public_url: str?
   cors_origins:
     - str
+  server_desktop_app: bool?
   openchamber_lan_native_apps: bool?
   openchamber_relay_host: bool?
   openchamber_allow_remote_speech: bool?
