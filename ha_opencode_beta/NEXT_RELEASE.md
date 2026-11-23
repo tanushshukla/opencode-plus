@@ -1,27 +1,14 @@
-# Beta 3.5.3b0 release baseline
+# Beta 3.5.4b0 baseline: stable 3.5.3
 
-| Field | Value |
-| --- | --- |
-| Beta release | [`beta-v3.5.3b0`](https://github.com/magnusoverli/opencode/releases/tag/beta-v3.5.3b0) |
-| Stable baseline | [`v3.5.2`](https://github.com/magnusoverli/opencode/releases/tag/v3.5.2) |
-| Baseline commit | `f10db183cfd5add64a6d728c02b8d7ee6c45546c` |
-| Previous beta | `3.5.2b0` |
+[`beta-v3.5.4b0`](https://github.com/magnusoverli/opencode/releases/tag/beta-v3.5.4b0)
+starts from [`v3.5.3`](https://github.com/magnusoverli/opencode/releases/tag/v3.5.3).
+It adds optional HTTPS aliases for the two reverse-proxied LAN frontends (#221).
 
-## Implementation baseline
+Both channels ship OpenCode 2.3.0, OpenChamber 2.7.2 and HAB 1.8.0.
+Carry forward stable's V1 migration validation, terminal reconnection,
+OpenChamber caching and history picker, decision-note diagnostics and LAN
+configuration before adding new beta features.
 
-This beta adds direct HTTP and HTTPS for the desktop app on a configured private
-IPv4 subnet, and checks LAN settings before services start. Runtime pins remain
-OpenCode 2.3.0, OpenChamber 2.7.2 and HAB 1.8.0.
-
-`test/stable-baseline.test.js` checks every stable tracked runtime/build/compat
-file against beta. The reviewed runtime substitutions cover beta's sidecar identity
-and decision-note directory, MCP/LSP pattern-update URLs, companion owner and
-native MCP migration provenance. These are exact substitutions, not whole-file
-exemptions. Beta retains its own manifest, AppArmor profile, labels, history and
-channel-specific test expectations.
-
-## Verification
-
-LAN regression tests cover direct HTTP and HTTPS, password authentication,
-subnet checks, and startup without certificate files for HTTP. They exercise
-the frontend with real sockets, not Electron against an installed HA system.
+Run `node --test ha_opencode_beta/test/stable-baseline.test.js` when preparing
+the next beta. Preserve the beta add-on's slug, storage, sidecar identity,
+update URLs and companion ownership.

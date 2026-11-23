@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.5.3
+
+- Promote beta **3.5.3b2** to stable. OpenCode 2.3.0, OpenChamber 2.7.2 and HAB 1.8.0 are unchanged.
+- OpenCode Desktop can connect directly over HTTP or HTTPS on a configured private IPv4 subnet. LAN access remains opt-in; startup reports invalid LAN settings before starting services. Use HTTPS to encrypt passwords and traffic.
+- After an Ingress interruption, the web terminal can reattach to its surviving tmux session. A deliberate exit or detach still requires manual reconnection ([#224](https://github.com/magnusoverli/opencode/issues/224)).
+- OpenChamber compresses fingerprinted JS/CSS and revalidates unchanged browser copies on reload ([#225](https://github.com/magnusoverli/opencode/issues/225)).
+- To see retained migrated conversations, choose **Add Project → From OpenCode → Home Assistant conversation history → Add selected** ([#226](https://github.com/magnusoverli/opencode/issues/226)).
+- Decision-note writes and `ha-context refresh` identify pinned notes omitted from the 2 KiB digest. The notes remain saved and retrievable ([#227](https://github.com/magnusoverli/opencode/issues/227)).
+
+- Fix V1 history migration falsely stopping at `message_projection_mismatch` for assistant provider metadata or mixed-case part IDs. Remaining message mismatches report a field path and row locator without exposing conversation contents ([#228](https://github.com/magnusoverli/opencode/issues/228)).
+
 ## 3.5.2
 
 - Connect the official OpenCode desktop app to the LAN API by enabling `server_desktop_app` (off by default). This allows the exact `oc://renderer` origin on the API frontend; the LAN password or a paired device token is still required.
