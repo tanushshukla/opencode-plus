@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.5.5b0
+
+- Start the 3.5.5 beta series from [stable 3.5.4](https://github.com/magnusoverli/opencode/releases/tag/v3.5.4). The runtime is unchanged from 3.5.4b3: OpenCode 2.4.1, OpenChamber 2.8.0 and HAB 1.10.0. Existing beta users can update in place; no configuration change is needed.
+
+## 3.5.4b3
+
+- Update the OpenCode CLI and plugin to **2.4.1**. Installations on 2.4.0 upgrade using the existing copy-on-write history validation.
+
+## 3.5.4b2
+
+- Fix V1 history validation when OpenCode generates a system notice about `todowrite` after the last compaction. A remaining message mismatch now identifies the projected V2 row type and a hashed message ID without logging its contents ([#230](https://github.com/magnusoverli/opencode/issues/230)).
+
+## 3.5.4b1
+
+- Update OpenCode CLI and plugin to 2.4.0, OpenChamber to 2.8.0 and HAB CLI to 1.10.0. Existing OpenCode 2.3.0 installations use the verified copy-on-write upgrade.
+- Teach agents when to use each HAB command family, including Supervisor apps, host and network administration, backup transfers and media. Agent guidance distinguishes option validation from writes, and directs secret-handling steps to the Home Assistant UI.
+- Build with Node 26.13.1 LTS, Bun 1.4.5 and Go 1.27.4. Update yq to 4.54.3, Tinfoil to 1.4.0, and lock the MCP and language-server dependencies used by the image.
+
 ## 3.5.4b0
 
 - Based on stable **3.5.3**. Use one OpenChamber UI or OpenCode API through multiple trusted HTTPS reverse proxies, for example Tailscale and a custom domain ([#221](https://github.com/magnusoverli/opencode/issues/221)). Add up to seven addresses to `openchamber_public_url_aliases` or `server_public_url_aliases`; existing primary URLs still work.

@@ -2,13 +2,16 @@
 
 This is the **beta channel** for the OpenCode add-on. It contains experimental features and fixes that are being validated before inclusion in the stable release.
 
-Beta **3.5.4b0** builds on stable **3.5.3** and adds [multiple reverse-proxy addresses](#multiple-reverse-proxy-addresses) for the API and OpenChamber ([#221](https://github.com/magnusoverli/opencode/issues/221)).
+Beta **3.5.5b0** starts from [stable **3.5.4**](https://github.com/magnusoverli/opencode/releases/tag/v3.5.4).
+It retains [multiple reverse-proxy addresses](#multiple-reverse-proxy-addresses) for the API and OpenChamber. Updating from **3.5.4b3** requires no configuration changes.
 Beta **3.5.3b1** improved terminal reconnection, OpenChamber asset caching,
 access to migrated conversations, and reporting when pinned decision notes do
 not fit. It retains [direct desktop HTTP](#direct-desktop-http-no-proxy) and
 HTTPS without a reverse proxy. LAN access is off by default.
 
-Beta `3.5.4b0` pins OpenCode `2.3.0`, OpenChamber `2.7.2`, and HAB `1.8.0`, retaining
+Beta **3.5.4b2** fixes a V1 history migration that could stop with `message_projection_mismatch (fields: data.text)` when OpenCode generated a notice about a legacy `todowrite` call ([#230](https://github.com/magnusoverli/opencode/issues/230)). Keep the original history intact; the corrected validator checks it on startup.
+
+This beta pins OpenCode `2.4.1`, OpenChamber `2.8.0`, and HAB `1.10.0`, retaining
 stable's desktop/mobile workspace recovery and live PPQ
 private-model discovery. It now includes stable 3.5.0's Zigporter compatibility,
 HAB registry-cache and project-upgrade fixes. Beta keeps its own app identity and persistent storage; installing
@@ -16,8 +19,9 @@ beta does not transfer stable conversations or sign-ins. HA 2026.10 integration 
 forwarding and an experimental native Assist/AI data-task adapter. The roadmap
 is tracked in [#45](https://github.com/magnusoverli/opencode/issues/45).
 
+Agent guidance covers all 48 HAB command families, including which operations use the add-on's guarded tools.
 OpenChamber uses immutable commit
-`1a151518c95cc5ff3578bab593d2f96862ff3bb8`, built with Bun `1.4.4` and the reviewed
+`30c70496a5ca0105e04e60a783964576973edc8f`, built with Bun `1.4.5` and the reviewed
 security lock. The app retains its Ingress asset/API/terminal-WebAssembly and
 private-backend adaptations, rebases the editor/mobile recovery patches, and uses
 upstream's Git 4 environment policy and streaming-proxy fix.
@@ -959,7 +963,7 @@ The bridge adapts itself to what your Home Assistant actually serves:
 
 - **Endpoint policy.** `home_assistant` uses only `/api/mcp`. Newly selected Assist/custom APIs use only their keyed endpoint and never fall back to a broader catalogue. A preserved legacy custom API can retain its old fallback when keyed endpoints are not served, logging the reason and periodically retrying the keyed endpoint. Unknown API errors are surfaced, not replaced. Use **Native tool selection**, not a new endpoint-mode environment override.
 - **Tool schema repair.** Before Home Assistant 2026.8, `GetLiveContext` used a schema that strict MCP clients could not compile, leading to `extra keys not allowed @ data['__unparsedToolInput']` ([home-assistant/core#176762](https://github.com/home-assistant/core/issues/176762), fixed by [#176814](https://github.com/home-assistant/core/pull/176814)). The bridge repairs that legacy unprefixed tool only. Modern and custom schemas, including required parameters and intentionally unconstrained unions, pass through unchanged. Set `HA_NATIVE_MCP_SANITIZE_SCHEMAS` to `0` to disable the repair.
-- **Malformed-message guard.** Every message is validated as JSON-RPC 2.0 before it is forwarded, because malformed POSTs to `/api/mcp` have been reported to crash Home Assistant Core ([home-assistant/core#176734](https://github.com/home-assistant/core/issues/176734)). This one is **not fixed in 2026.8** — the upstream fix is still open — so the guard applies on every version.
+- **Malformed-message guard.** The bridge validates JSON-RPC 2.0 messages locally on every Core version. [Core #176734](https://github.com/home-assistant/core/issues/176734) was closed, and [PR #176782](https://github.com/home-assistant/core/pull/176782) was closed without merging. Neither establishes a confirmed crash or a release that fixed one.
 
 Run `get_agent_capabilities` to see what the running instance supports; it reports the detected version, the endpoint status, and any known upstream limitations that apply to it. OpenCode's regular `homeassistant` MCP server remains the supported tool surface either way.
 
@@ -1121,6 +1125,12 @@ credential copying, callback configuration, or visit to a setup page is required
 Publication begins automatically after service readiness, even if the installed
 Core does not yet support discovery. A supporting Core version is still needed
 to show the discovery confirmation.
+
+With [Supervisor 2026.11.0](https://github.com/home-assistant/supervisor/pull/7426)
+or newer, restarting the add-on while Core is running reannounces the ready
+endpoint, even if its URL has not changed. If the integration is unconfigured,
+look for the confirmation again in **Devices & services**. If it is already
+configured, Core keeps the existing entry; no second confirmation is needed.
 
 No MCP badge or link is added to the app UI. The optional administrator status
 page remains at `/ha-mcp/` beneath the app's authenticated Ingress base URL; it is
@@ -1477,7 +1487,7 @@ These failures share a startup pipeline, but require different evidence:
 | --- | --- | --- |
 | `session_projection_mismatch` with `project_id` or `path` (#211/#217) | Converted conversation placement differs from the preserved source. | The current beta restores source placement before exact validation. Retest against the affected history after a supported upgrade of that same app. |
 | `message_projection_mismatch` involving compaction (#195) | Compaction event shape differs from the validator's expectation. | The included fix preserves compaction summaries and retained context; deletion is not required. Other message mismatches need their own diagnosis. |
-| `message_projection_mismatch` after V1 conversion (#228) | Beta 3.5.3b2 fixes validation of provider metadata and mixed-case part ID order. | For an affected beta installation, keep a backup and update to 3.5.3b2. If a mismatch persists, share only the field path, `session_hash` and zero-based `message_seq` from the new log. |
+| `message_projection_mismatch` after V1 conversion (#228, #230) | The validator checks the **converted V2 timeline**. Rows can be split, collapsed, omitted or generated. One known `data.text` mismatch was stale wording for a generated system notice about V1 `todowrite`; #228 concerned provider metadata and part ordering. | Keep the V1 history intact. For a persistent mismatch, share the field path, `session_hash`, zero-based `message_seq` and, if present, `projected_type` and `message_hash`. The sequence is **not** a V1 row number. No message text, tool arguments, raw IDs or database upload are needed. |
 | `unexpected_migration_work` (#202) | An unrecognized object exists in the private migration work directory. | Share the startup line containing entry, bounded path, type, ownership and mode. Leave the object intact. |
 | `unsafe_path_type` (#207) | A required file/directory has a different filesystem type. | Share the failing path and expected/actual type from the startup log. Do not treat this as a permissions-only error. |
 

@@ -1,13 +1,8 @@
-# Beta 3.5.4b0 baseline: stable 3.5.3
+# Beta 3.5.5b0 baseline: stable 3.5.4
 
-[`beta-v3.5.4b0`](https://github.com/magnusoverli/opencode/releases/tag/beta-v3.5.4b0)
-starts from [`v3.5.3`](https://github.com/magnusoverli/opencode/releases/tag/v3.5.3).
-It adds optional HTTPS aliases for the two reverse-proxied LAN frontends (#221).
-
-Both channels ship OpenCode 2.3.0, OpenChamber 2.7.2 and HAB 1.8.0.
-Carry forward stable's V1 migration validation, terminal reconnection,
-OpenChamber caching and history picker, decision-note diagnostics and LAN
-configuration before adding new beta features.
+The 3.5.5 beta series starts at the published [stable 3.5.4 release](https://github.com/magnusoverli/opencode/releases/tag/v3.5.4).
+`3.5.5b0` carries the same runtime, including HTTPS aliases, the V1 migration
+fix, OpenCode 2.4.1, OpenChamber 2.8.0 and HAB 1.10.0.
 
 Run `node --test ha_opencode_beta/test/stable-baseline.test.js` when preparing
 the next beta. Preserve the beta add-on's slug, storage, sidecar identity,
